@@ -28,12 +28,12 @@ def load_data():
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
         return df
     except:
-        st.error("Dataset not found.")
+        st.error("Dataset not found. Please ensure the CSV file is in the repository.")
         return pd.DataFrame()
 
 df = load_data()
 
-# 3. Sidebar Controls (All your original controls are back)
+# 3. Sidebar Controls
 st.sidebar.header("🕹️ Dashboard Controls")
 
 ghana_regions = {
@@ -53,15 +53,22 @@ selected_years = st.sidebar.slider("Historical Range", min_year, max_year, (1980
 
 enable_forecast = st.sidebar.toggle("Enable 2040 Forecast", value=True)
 
-# --- DOWNLOAD BUTTON (At the bottom of sidebar) ---
-st.sidebar.divider()
-csv_data = df.to_csv(index=False).encode('utf-8')
-st.sidebar.download_button("📥 Download Data (CSV)", data=csv_data, file_name='ghana_climate_data.csv')
-
-# 4. Main Title
+# 4. Executive Summary
 st.title(f"🇬🇭 {selected_region} Climate Intelligence")
+st.markdown("""
+### 📊 Executive Summary
+This dashboard provides a high-level analysis of climate anomalies in Ghana. 
+By combining historical data with predictive modeling, we can visualize 
+trends in temperature and rainfall to better understand climate shifts.
+""")
 
-# 5. Graph FIRST (As requested)
+# 5. Map (Back at the Top)
+coords = ghana_regions[selected_region]
+map_df = pd.DataFrame({'lat': [coords[0]], 'lon': [coords[1]]})
+st.map(map_df, zoom=coords[2])
+
+# 6. Charts (Below the Map)
+st.subheader("Historical & Predictive Analysis")
 filtered_df = df[(df['Year'] >= selected_years[0]) & (df['Year'] <= selected_years[1])]
 
 if not filtered_df.empty:
@@ -81,9 +88,3 @@ if not filtered_df.empty:
             fig.add_trace(go.Scatter(x=f_years, y=f_temp, name="Temp Forecast", line=dict(color='orange', dash='dash')), secondary_y=True)
 
     st.plotly_chart(fig, use_container_width=True)
-
-# 6. Map SECOND
-st.subheader("Location Map")
-coords = ghana_regions[selected_region]
-map_df = pd.DataFrame({'lat': [coords[0]], 'lon': [coords[1]]})
-st.map(map_df, zoom=coords[2])
