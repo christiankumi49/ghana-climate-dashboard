@@ -10,16 +10,13 @@ st.set_page_config(page_title="Ghana Climate Intelligence Dashboard", layout="wi
 
 # --- PREDICTIVE ENGINE ---
 def calculate_trend(df_input, target_year=2040):
-    """Uses Linear Regression to project trends to 2040."""
     X = df_input['Year'].values.reshape(-1, 1)
     y_temp = df_input['Temp_Anomaly_C'].values
     y_rain = df_input['Rain_Anomaly_mm'].values
     
-    # Train Models
     model_t = LinearRegression().fit(X, y_temp)
     model_r = LinearRegression().fit(X, y_rain)
     
-    # Predict future
     future_years = np.arange(df_input['Year'].max() + 1, target_year + 1).reshape(-1, 1)
     pred_t = model_t.predict(future_years)
     pred_r = model_r.predict(future_years)
@@ -38,7 +35,7 @@ def load_data():
 
 df = load_data()
 
-# 3. Interactive Control Panel (Sidebar)
+# 3. Sidebar Controls
 st.sidebar.header("🕹️ Dashboard Controls")
 
 ghana_regions = {
@@ -65,89 +62,83 @@ else:
 st.sidebar.divider()
 enable_forecast = st.sidebar.toggle("Enable 2040 Forecast", value=False)
 
-# 4. Data Filtering and Dynamic Math
+# 4. Data Processing
 if not df.empty:
     filtered_df = df[(df['Year'] >= selected_years[0]) & (df['Year'] <= selected_years[1])]
     avg_rain_anomaly = filtered_df['Rain_Anomaly_mm'].mean()
     avg_temp_anomaly = filtered_df['Temp_Anomaly_C'].mean()
-    peak_temp = filtered_df['Temp_Anomaly_C'].max()
 
-    # 5. Header Section
-    st.title(f"🇬🇭 {selected_region} Climate Intelligence")
-    st.markdown(f"Real-time analysis and 2040 statistical projections for **{selected_region}**.")
-
-    # --- DYNAMIC EXECUTIVE SUMMARY ---
+    # 5. Header & Summary
+    st.title(f"🇬🇭 {selected_region} Meteorological Intelligence")
+    
     st.subheader("Executive Climate Summary")
     col1, col2, col3 = st.columns(3)
 
     if enable_forecast:
         f_yrs, f_t, f_r = calculate_trend(df)
-        col1.metric("Projected 2040 Rain Anomaly", f"{f_r[-1]:.2f} mm", f"{'Wetter' if f_r[-1] > 0 else 'Drier'}")
-        col2.metric("Projected 2040 Temp Anomaly", f"+{f_t[-1]:.2f} °C", "Rising Trend")
-        col3.metric("Model Logic", "Linear Regression", "Scikit-Learn")
+        col1.metric("Projected 2040 Rain", f"{f_r[-1]:.2f} mm")
+        col2.metric("Projected 2040 Temp", f"+{f_t[-1]:.2f} °C")
+        col3.metric("Analytics Engine", "Linear Regression")
     else:
-        col1.metric("Avg Rain Anomaly (Selected)", f"{avg_rain_anomaly:.2f} mm")
-        col2.metric("Avg Temp Anomaly (Selected)", f"+{avg_temp_anomaly:.2f} °C", delta="Historical")
-        col3.metric("Max Recorded Anomaly", f"+{peak_temp:.2f} °C", delta_color="inverse")
+        col1.metric("Avg Rain Anomaly", f"{avg_rain_anomaly:.2f} mm")
+        col2.metric("Avg Temp Anomaly", f"+{avg_temp_anomaly:.2f} °C")
+        col3.metric("Data Points", f"{len(filtered_df)} Years")
 
     st.divider()
 
-    # 6. Interactive Dual-Axis Chart
+    # 6. Integrated Charts
     fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
     if target_var in ["Rainfall", "Both"]:
         fig.add_trace(go.Bar(x=filtered_df['Year'], y=filtered_df['Rain_Anomaly_mm'], 
-                             name="Historical Rain", marker_color='royalblue', opacity=0.7), secondary_y=False)
+                             name="Rain Anomaly", marker_color='royalblue', opacity=0.7), secondary_y=False)
+    
     if target_var in ["Temperature", "Both"]:
         fig.add_trace(go.Scatter(x=filtered_df['Year'], y=filtered_df['Temp_Anomaly_C'], 
-                                 name="Historical Temp", line=dict(color='crimson', width=2.5)), secondary_y=True)
+                                 name="Temp Anomaly", line=dict(color='crimson', width=2.5)), secondary_y=True)
 
     if enable_forecast:
         f_yrs, f_t, f_r = calculate_trend(df)
         if target_var in ["Rainfall", "Both"]:
-            fig.add_trace(go.Bar(x=f_yrs, y=f_r, name="Proj. Rain", marker_color='lightblue', opacity=0.4), secondary_y=False)
+            fig.add_trace(go.Scatter(x=f_yrs, y=f_rain, name="Rain Forecast", line=dict(dash='dash', color='blue')), secondary_y=False)
         if target_var in ["Temperature", "Both"]:
-            fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Proj. Trend", line=dict(color='crimson', width=2, dash='dot')), secondary_y=True)
-        fig.update_xaxes(range=[selected_years[0], 2040])
+            fig.add_trace(go.Scatter(x=f_yrs, y=f_temp, name="Temp Forecast", line=dict(color='orange', dash='dash')), secondary_y=True)
 
-    fig.update_layout(
-        title=f"<b>Integrated Anomalies: {selected_region} ({selected_years[0]}-{'2040' if enable_forecast else selected_years[1]})</b>",
-        xaxis_title="Year", hovermode="x unified", template="plotly_white",
-        legend=dict(x=0, y=1.1, orientation="h")
-    )
-    fig.update_yaxes(title_text="Rainfall (mm)", secondary_y=False, color="blue")
-    fig.update_yaxes(title_text="Temperature (°C)", secondary_y=True, color="red")
+    fig.update_layout(title=f"Anomaly Analysis: {selected_region}", template="plotly_white", hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
-    # 7. Spatial Analysis (SATELLITE VIEW UPDATED HERE)
+    # 7. PROFESSIONAL SATELLITE MAP
     st.divider()
-    st.header(f"🌍 {selected_region} Geographic Analysis")
-    map_col, stats_col = st.columns([2, 1])
+    st.header(f"🌍 {selected_region} Satellite Observation")
+    
     region_data = ghana_regions[selected_region]
+    
+    fig_map = go.Figure(go.Scattermapbox(
+        lat=[region_data[0]], 
+        lon=[region_data[1]],
+        mode='markers',
+        marker=go.scattermapbox.Marker(size=20, color='red', symbol='circle'),
+        text=[selected_region]
+    ))
 
-    with map_col:
-        fig_map = go.Figure(go.Scattermapbox(
-            lat=[region_data[0]], lon=[region_data[1]],
-            mode='markers', marker=go.scattermapbox.Marker(size=25, color='gold', symbol='star'),
-            text=[selected_region]
-        ))
-        fig_map.update_layout(
-            mapbox_style="satellite-streets", # This provides the satellite view
-            mapbox_center_lat=region_data[0], mapbox_center_lon=region_data[1],
-            mapbox_zoom=region_data[2], height=500, margin={"r":0,"t":0,"l":0,"b":0}
-        )
-        st.plotly_chart(fig_map, use_container_width=True)
+    fig_map.update_layout(
+        mapbox_style="white-bg",
+        mapbox_layers=[
+            {
+                "below": 'traces',
+                "sourcetype": "raster",
+                "sourceattr": "ESRI World Imagery",
+                "source": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"]
+            }
+        ],
+        mapbox_center_lat=region_data[0],
+        mapbox_center_lon=region_data[1],
+        mapbox_zoom=region_data[2],
+        height=600,
+        margin={"r":0,"t":0,"l":0,"b":0}
+    )
+    
+    st.plotly_chart(fig_map, use_container_width=True)
 
-    with stats_col:
-        st.subheader("Quick Insights")
-        st.write(f"**Focus Area:** {selected_region}")
-        st.write(f"**Selected Data Points:** {len(filtered_df)} years")
-        if avg_temp_anomaly > 0.5:
-            st.warning(f"This region shows significant warming of {avg_temp_anomaly:.2f}°C.")
-        else:
-            st.info("Temperature deviations are within moderate bounds.")
-        st.download_button(
-            label="📥 Download Region Data", 
-            data=filtered_df.to_csv(index=False).encode('utf-8'), 
-            file_name=f"{selected_region}_report.csv", 
-            mime="text/csv"
-        )
+    # 8. Export Option
+    st.sidebar.download_button("📥 Export Observation Data", filtered_df.to_csv(index=False).encode('utf-8'), "climate_report.csv")
