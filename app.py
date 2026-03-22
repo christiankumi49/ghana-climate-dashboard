@@ -4,46 +4,125 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Safety check for the ML engine
+# --- METEOROLOGICAL ENGINE CHECK ---
 try:
     from sklearn.linear_model import LinearRegression
 except ImportError:
-    st.info("⚙️ Initializing Meteorological Engine... Please refresh in 30 seconds.")
+    st.warning("⚙️ System Update: Initializing Meteorological Engine (scikit-learn)...")
+    st.info("The server is installing necessary tools. Please refresh in 30 seconds.")
     st.stop()
 
-st.set_page_config(page_title="Ghana Climate Intel", layout="wide")
+# 1. Page Configuration
+st.set_page_config(page_title="Ghana Climate Intelligence", layout="wide")
 
-# Predictive Engine
-def calculate_trend(df_input):
+# --- PREDICTIVE ENGINE ---
+def calculate_trend(df_input, target_year=2040):
+    """Calculates linear trends for Temperature and Rainfall anomalies."""
     X = df_input['Year'].values.reshape(-1, 1)
-    model_t = LinearRegression().fit(X, df_input['Temp_Anomaly_C'].values)
-    model_r = LinearRegression().fit(X, df_input['Rain_Anomaly_mm'].values)
-    f_yrs = np.arange(df_input['Year'].max() + 1, 2041).reshape(-1, 1)
-    return f_yrs.flatten(), model_t.predict(f_yrs), model_r.predict(f_yrs)
+    y_temp = df_input['Temp_Anomaly_C'].values
+    y_rain = df_input['Rain_Anomaly_mm'].values
+    
+    model_t = LinearRegression().fit(X, y_temp)
+    model_r = LinearRegression().fit(X, y_rain)
+    
+    future_years = np.arange(df_input['Year'].max() + 1, target_year + 1).reshape(-1, 1)
+    pred_t = model_t.predict(future_years)
+    pred_r = model_r.predict(future_years)
+    
+    return future_years.flatten(), pred_t, pred_r
 
-# Load Data
-df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
+# 2. Load Dataset
+@st.cache_data
+def load_data():
+    try:
+        df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
+        return df
+    except Exception as e:
+        st.error(f"Error loading dataset: {e}")
+        return pd.DataFrame()
 
-# Sidebar & Map Coords
-ghana_regions = {"National Average": [7.9, -1.0, 6], "Ashanti": [6.7, -1.5, 9]} # Add others as needed
-sel_region = st.sidebar.selectbox("Region", list(ghana_regions.keys()))
-coords = ghana_regions[sel_region]
+df = load_data()
 
-st.title(f"🌍 {sel_region} Satellite Observation")
+# 3. Sidebar Controls
+st.sidebar.header("🕹️ Dashboard Controls")
 
-# The Professional Map
-fig_map = go.Figure(go.Scattermapbox(lat=[coords[0]], lon=[coords[1]], mode='markers', marker=dict(size=15, color='red')))
-fig_map.update_layout(
-    mapbox=dict(style="open-street-map", center=dict(lat=coords[0], lon=coords[1]), zoom=coords[2]),
-    height=500, margin={"r":0,"t":0,"l":0,"b":0}
-)
-st.plotly_chart(fig_map, use_container_width=True)
+ghana_regions = {
+    "National Average": [7.9465, -1.0232, 5.5],
+    "Ashanti": [6.75, -1.5, 8.5], "Greater Accra": [5.81, 0.0, 10.0],
+    "Northern": [9.4, -0.8, 7.5], "Western": [5.9, -2.1, 8.5],
+    "Eastern": [6.3, -0.3, 8.5], "Central": [5.5, -1.2, 9.0],
+    "Volta": [6.6, 0.4, 8.5], "Upper East": [10.8, -0.8, 9.5],
+    "Upper West": [10.3, -2.1, 9.5], "Bono": [7.5, -2.5, 9.0],
+    "Bono East": [7.8, -1.0, 9.0], "Ahafo": [7.0, -2.3, 9.5],
+    "Savannah": [9.1, -1.8, 8.5], "North East": [10.4, -0.2, 9.5],
+    "Oti": [8.1, 0.3, 9.0], "Western North": [6.3, -2.8, 9.0]
+}
 
-# Charts & Forecast
-f_yrs, f_t, f_r = calculate_trend(df)
-fig = make_subplots(specs=[[{"secondary_y": True}]])
-fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain"), secondary_y=False)
-fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp"), secondary_y=True)
-fig.add_trace(go.Scatter(x=f_yrs, y=f_r, name="Rain Proj", line=dict(dash='dot')), secondary_y=False)
-fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Temp Proj", line=dict(dash='dot')), secondary_y=True)
-st.plotly_chart(fig, use_container_width=True)
+selected_region = st.sidebar.selectbox("Select Study Area", options=list(ghana_regions.keys()))
+target_var = st.sidebar.selectbox("Climate Variable", options=["Rainfall", "Temperature", "Both"], index=2)
+enable_forecast = st.sidebar.toggle("Enable 2040 Forecast", value=True)
+
+# 4. Main Interface
+st.title(f"🇬🇭 {selected_region} Meteorological Intelligence")
+
+if not df.empty:
+    # --- EXECUTIVE METRICS ---
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Avg Rain Anomaly", f"{df['Rain_Anomaly_mm'].mean():.2f} mm")
+    col2.metric("Avg Temp Anomaly", f"+{df['Temp_Anomaly_C'].mean():.2f} °C")
+    col3.metric("Map View", "Satellite-Streets")
+
+    st.divider()
+
+    # --- INTEGRATED CLIMATE CHART ---
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Historical Data
+    if target_var in ["Rainfall", "Both"]:
+        fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], 
+                             name="Rain Anomaly", marker_color='royalblue', opacity=0.7), secondary_y=False)
+    
+    if target_var in ["Temperature", "Both"]:
+        fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], 
+                                 name="Temp Anomaly", line=dict(color='crimson', width=2)), secondary_y=True)
+
+    # Forecast Data
+    if enable_forecast:
+        f_yrs, f_t, f_r = calculate_trend(df)
+        if target_var in ["Rainfall", "Both"]:
+            fig.add_trace(go.Scatter(x=f_yrs, y=f_r, name="Rain 2040 Proj.", line=dict(dash='dot', color='blue')), secondary_y=False)
+        if target_var in ["Temperature", "Both"]:
+            fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Temp 2040 Proj.", line=dict(dash='dot', color='orange')), secondary_y=True)
+
+    fig.update_layout(height=500, template="plotly_white", hovermode="x unified", margin=dict(t=30, b=20))
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- SATELLITE TERRAIN OBSERVATION ---
+    st.subheader(f"🌍 {selected_region} Satellite Observation")
+    coords = ghana_regions[selected_region]
+
+    fig_map = go.Figure(go.Scattermapbox(
+        lat=[coords[0]], lon=[coords[1]],
+        mode='markers',
+        marker=go.scattermapbox.Marker(size=22, color='gold', symbol='circle'),
+        text=[selected_region],
+    ))
+
+    fig_map.update_layout(
+        mapbox=dict(
+            style="satellite-streets", 
+            center=dict(lat=coords[0], lon=coords[1]),
+            zoom=coords[2]
+        ),
+        height=600, margin={"r":0,"t":0,"l":0,"b":0}
+    )
+    st.plotly_chart(fig_map, use_container_width=True)
+
+    # 5. Export Utility
+    st.sidebar.divider()
+    st.sidebar.download_button(
+        label="📥 Download Regional Data", 
+        data=df.to_csv(index=False).encode('utf-8'), 
+        file_name=f"{selected_region}_climate_report.csv", 
+        mime="text/csv"
+    )
