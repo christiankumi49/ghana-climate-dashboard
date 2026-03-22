@@ -35,7 +35,6 @@ def calculate_trend(df_input, target_year=2040):
 @st.cache_data
 def load_data():
     try:
-        # Ensure this file is uploaded to your GitHub repository
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
         return df
     except Exception as e:
@@ -60,6 +59,7 @@ ghana_regions = {
 }
 
 selected_region = st.sidebar.selectbox("Select Study Area", options=list(ghana_regions.keys()))
+# This variable controls what is shown
 target_var = st.sidebar.selectbox("Climate Variable", options=["Rainfall", "Temperature", "Both"], index=2)
 enable_forecast = st.sidebar.toggle("Enable 2040 Forecast", value=True)
 
@@ -71,23 +71,24 @@ if not df.empty:
     col1, col2, col3 = st.columns(3)
     col1.metric("Avg Rain Anomaly", f"{df['Rain_Anomaly_mm'].mean():.2f} mm")
     col2.metric("Avg Temp Anomaly", f"+{df['Temp_Anomaly_C'].mean():.2f} °C")
-    col3.metric("Map View", "Active")
+    col3.metric("Status", "Operational")
 
     st.divider()
 
     # --- INTEGRATED CLIMATE CHART ---
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
-    # Historical Data
+    # Logic to show Rainfall
     if target_var in ["Rainfall", "Both"]:
         fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], 
                              name="Rain Anomaly", marker_color='royalblue', opacity=0.7), secondary_y=False)
     
+    # Logic to show Temperature
     if target_var in ["Temperature", "Both"]:
         fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], 
                                  name="Temp Anomaly", line=dict(color='crimson', width=2)), secondary_y=True)
 
-    # Forecast Data
+    # Forecast Logic based on selection
     if enable_forecast:
         f_yrs, f_t, f_r = calculate_trend(df)
         if target_var in ["Rainfall", "Both"]:
@@ -98,7 +99,7 @@ if not df.empty:
     fig.update_layout(height=500, template="plotly_white", hovermode="x unified", margin=dict(t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- GEOSPATIAL OBSERVATION (MAP FIX) ---
+    # --- GEOSPATIAL OBSERVATION ---
     st.subheader(f"🌍 {selected_region} Geospatial Context")
     coords = ghana_regions[selected_region]
 
@@ -111,7 +112,7 @@ if not df.empty:
 
     fig_map.update_layout(
         mapbox=dict(
-            style="open-street-map", # Use public style to bypass Mapbox token errors
+            style="carto-positron", 
             center=dict(lat=coords[0], lon=coords[1]),
             zoom=coords[2]
         ),
