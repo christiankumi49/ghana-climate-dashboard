@@ -35,6 +35,7 @@ def calculate_trend(df_input, target_year=2040):
 @st.cache_data
 def load_data():
     try:
+        # Ensure this file is uploaded to your GitHub repository
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
         return df
     except Exception as e:
@@ -70,7 +71,7 @@ if not df.empty:
     col1, col2, col3 = st.columns(3)
     col1.metric("Avg Rain Anomaly", f"{df['Rain_Anomaly_mm'].mean():.2f} mm")
     col2.metric("Avg Temp Anomaly", f"+{df['Temp_Anomaly_C'].mean():.2f} °C")
-    col3.metric("Map View", "Satellite-Streets")
+    col3.metric("Map View", "Active")
 
     st.divider()
 
@@ -97,20 +98,20 @@ if not df.empty:
     fig.update_layout(height=500, template="plotly_white", hovermode="x unified", margin=dict(t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- SATELLITE TERRAIN OBSERVATION ---
-    st.subheader(f"🌍 {selected_region} Satellite Observation")
+    # --- GEOSPATIAL OBSERVATION (MAP FIX) ---
+    st.subheader(f"🌍 {selected_region} Geospatial Context")
     coords = ghana_regions[selected_region]
 
     fig_map = go.Figure(go.Scattermapbox(
         lat=[coords[0]], lon=[coords[1]],
         mode='markers',
-        marker=go.scattermapbox.Marker(size=22, color='gold', symbol='circle'),
+        marker=go.scattermapbox.Marker(size=25, color='gold', symbol='circle'),
         text=[selected_region],
     ))
 
     fig_map.update_layout(
         mapbox=dict(
-            style="satellite-streets", 
+            style="open-street-map", # Use public style to bypass Mapbox token errors
             center=dict(lat=coords[0], lon=coords[1]),
             zoom=coords[2]
         ),
