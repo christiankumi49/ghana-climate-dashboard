@@ -35,7 +35,7 @@ def calculate_trend(df_input, target_year=2040):
 @st.cache_data
 def load_data():
     try:
-        # Ensure 'Ghana_Climate_Anomalies_Aligned.csv' is in your GitHub repo
+        # Ensure this file is uploaded to your GitHub repository
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
         return df
     except Exception as e:
@@ -71,7 +71,7 @@ if not df.empty:
     col1, col2, col3 = st.columns(3)
     col1.metric("Avg Rain Anomaly", f"{df['Rain_Anomaly_mm'].mean():.2f} mm")
     col2.metric("Avg Temp Anomaly", f"+{df['Temp_Anomaly_C'].mean():.2f} °C")
-    col3.metric("Status", "Operational")
+    col3.metric("Map View", "Active")
 
     st.divider()
 
@@ -81,50 +81,41 @@ if not df.empty:
     # Historical Data
     if target_var in ["Rainfall", "Both"]:
         fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], 
-                             name="Rain Anomaly", marker_color='#3498db', opacity=0.7), secondary_y=False)
+                             name="Rain Anomaly", marker_color='royalblue', opacity=0.7), secondary_y=False)
     
     if target_var in ["Temperature", "Both"]:
         fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], 
-                                 name="Temp Anomaly", line=dict(color='#e74c3c', width=2)), secondary_y=True)
+                                 name="Temp Anomaly", line=dict(color='crimson', width=2)), secondary_y=True)
 
     # Forecast Data
     if enable_forecast:
         f_yrs, f_t, f_r = calculate_trend(df)
         if target_var in ["Rainfall", "Both"]:
-            fig.add_trace(go.Scatter(x=f_yrs, y=f_r, name="Rain 2040 Proj.", line=dict(dash='dot', color='#2980b9')), secondary_y=False)
+            fig.add_trace(go.Scatter(x=f_yrs, y=f_r, name="Rain 2040 Proj.", line=dict(dash='dot', color='blue')), secondary_y=False)
         if target_var in ["Temperature", "Both"]:
-            fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Temp 2040 Proj.", line=dict(dash='dot', color='#f39c12')), secondary_y=True)
+            fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Temp 2040 Proj.", line=dict(dash='dot', color='orange')), secondary_y=True)
 
     fig.update_layout(height=500, template="plotly_white", hovermode="x unified", margin=dict(t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- PROFESSIONAL METEOROLOGICAL MAP (THE DARK FIX) ---
-    st.subheader(f"📡 {selected_region} Spatial Analysis")
+    # --- GEOSPATIAL OBSERVATION (MAP FIX) ---
+    st.subheader(f"🌍 {selected_region} Geospatial Context")
     coords = ghana_regions[selected_region]
 
     fig_map = go.Figure(go.Scattermapbox(
         lat=[coords[0]], lon=[coords[1]],
-        mode='markers+text',
-        marker=go.scattermapbox.Marker(
-            size=28, 
-            color='rgba(255, 215, 0, 0.8)', # Glowing Gold Marker
-            symbol='circle'
-        ),
-        text=[f"Station: {selected_region}"],
-        textposition="top center"
+        mode='markers',
+        marker=go.scattermapbox.Marker(size=25, color='gold', symbol='circle'),
+        text=[selected_region],
     ))
 
     fig_map.update_layout(
         mapbox=dict(
-            style="carto-darkmatter", # The professional Dark-Themed look
+            style="open-street-map", # Use public style to bypass Mapbox token errors
             center=dict(lat=coords[0], lon=coords[1]),
             zoom=coords[2]
         ),
-        showlegend=False,
-        height=650, 
-        margin={"r":0,"t":0,"l":0,"b":0},
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)"
+        height=600, margin={"r":0,"t":0,"l":0,"b":0}
     )
     st.plotly_chart(fig_map, use_container_width=True)
 
