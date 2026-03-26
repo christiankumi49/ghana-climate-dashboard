@@ -18,6 +18,9 @@ st.set_page_config(page_title="Ghana Climate Intelligence", layout="wide")
 # --- PREDICTIVE ENGINE ---
 def calculate_trend(df_input, target_year=2040):
     """Calculates linear trends for Temperature and Rainfall anomalies."""
+    if df_input.empty or len(df_input) < 2:
+        return np.array([]), np.array([]), np.array([])
+        
     X = df_input['Year'].values.reshape(-1, 1)
     y_temp = df_input['Temp_Anomaly_C'].values
     y_rain = df_input['Rain_Anomaly_mm'].values
@@ -35,13 +38,14 @@ def calculate_trend(df_input, target_year=2040):
 @st.cache_data
 def load_data():
     try:
+        # Ensure this filename matches your GitHub file exactly
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
         return df
     except Exception as e:
         st.error(f"Error loading dataset: {e}")
         return pd.DataFrame()
 
-df = load_data()
+df_raw = load_data()
 
 # 3. Sidebar Controls
 st.sidebar.header("🕹️ Dashboard Controls")
@@ -59,15 +63,26 @@ ghana_regions = {
 }
 
 selected_region = st.sidebar.selectbox("Select Study Area", options=list(ghana_regions.keys()))
-# This variable controls what is shown
 target_var = st.sidebar.selectbox("Climate Variable", options=["Rainfall", "Temperature", "Both"], index=2)
 enable_forecast = st.sidebar.toggle("Enable 2040 Forecast", value=True)
+
+# --- STEP 3.5: DYNAMIC DATA FILTERING ---
+# This makes the numbers and graphs change when you switch regions
+if selected_region == "National Average":
+    df = df_raw.copy()
+else:
+    # This checks if your CSV has a column named 'Region'
+    if 'Region' in df_raw.columns:
+        df = df_raw[df_raw['Region'] == selected_region].copy()
+    else:
+        st.sidebar.warning(f"⚠️ 'Region' column not found in CSV. Showing National data.")
+        df = df_raw.copy()
 
 # 4. Main Interface
 st.title(f"🇬🇭 {selected_region} Meteorological Intelligence")
 
 if not df.empty:
-    # --- EXECUTIVE METRICS ---
+    # --- EXECUTIVE METRICS (Calculated from filtered 'df') ---
     col1, col2, col3 = st.columns(3)
     col1.metric("Avg Rain Anomaly", f"{df['Rain_Anomaly_mm'].mean():.2f} mm")
     col2.metric("Avg Temp Anomaly", f"+{df['Temp_Anomaly_C'].mean():.2f} °C")
@@ -78,23 +93,21 @@ if not df.empty:
     # --- INTEGRATED CLIMATE CHART ---
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
-    # Logic to show Rainfall
     if target_var in ["Rainfall", "Both"]:
         fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], 
                              name="Rain Anomaly", marker_color='royalblue', opacity=0.7), secondary_y=False)
     
-    # Logic to show Temperature
     if target_var in ["Temperature", "Both"]:
         fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], 
                                  name="Temp Anomaly", line=dict(color='crimson', width=2)), secondary_y=True)
 
-    # Forecast Logic based on selection
     if enable_forecast:
         f_yrs, f_t, f_r = calculate_trend(df)
-        if target_var in ["Rainfall", "Both"]:
-            fig.add_trace(go.Scatter(x=f_yrs, y=f_r, name="Rain 2040 Proj.", line=dict(dash='dot', color='blue')), secondary_y=False)
-        if target_var in ["Temperature", "Both"]:
-            fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Temp 2040 Proj.", line=dict(dash='dot', color='orange')), secondary_y=True)
+        if len(f_yrs) > 0:
+            if target_var in ["Rainfall", "Both"]:
+                fig.add_trace(go.Scatter(x=f_yrs, y=f_r, name="Rain 2040 Proj.", line=dict(dash='dot', color='blue')), secondary_y=False)
+            if target_var in ["Temperature", "Both"]:
+                fig.add_trace(go.Scatter(x=f_yrs, y=f_t, name="Temp 2040 Proj.", line=dict(dash='dot', color='orange')), secondary_y=True)
 
     fig.update_layout(height=500, template="plotly_white", hovermode="x unified", margin=dict(t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
