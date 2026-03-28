@@ -22,12 +22,11 @@ st.markdown("""
     .metric-label { color: #8892b0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; }
     .metric-value { color: #00d2ff; font-size: 28px; font-weight: 800; }
     .sector-header { color: #ffffff; font-size: 18px; font-weight: 800; border-bottom: 1px solid #34495e; padding-bottom: 8px; margin-bottom: 15px; }
-    .update-pulse { color: #00ffcc; font-size: 12px; font-family: monospace; font-weight: bold; }
     section[data-testid="stSidebar"] { background-color: #1a1c23; border-right: 1px solid #34495e; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 120-YEAR DATA ENGINE ---
+# --- 2. DATA ENGINE ---
 @st.cache_data
 def load_historical_engine():
     try:
@@ -37,7 +36,7 @@ def load_historical_engine():
         df = pd.DataFrame({
             'Year': years, 
             'Temp_Anomaly_C': np.random.normal(0.6, 0.15, len(years)) + (years-1901)*0.004, 
-            'Rain_Anomaly_mm': np.random.normal(0, 80, len(years)) # Increased variance for flood/drought testing
+            'Rain_Anomaly_mm': np.random.normal(0, 80, len(years))
         })
     
     regions = {
@@ -79,7 +78,6 @@ df = df_raw[(df_raw['Region'] == selected_region) &
             (df_raw['Year'] >= selected_years[0]) & 
             (df_raw['Year'] <= selected_years[1])].copy()
 
-# Signal smoothing safety check
 window_size = min(15, len(df)) if len(df) > 0 else 1
 df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=window_size, center=True).mean().ffill().bfill()
 df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=window_size, center=True).mean().ffill().bfill()
@@ -96,7 +94,7 @@ render_metric(m2, "Period Mean Rain Δ", f"{avg_r:.1f} mm")
 render_metric(m3, "Reliability Index", "74.0%") 
 render_metric(m4, "Dataset Limit", f"{max_year}")
 
-# --- 5. MAIN VISUALIZATION (CRASH-PROOF) ---
+# --- 5. MAIN VISUALIZATION ---
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 hover_style = "<b>Year: %{x}</b><br>Value: %{y:.2f}<br><extra></extra>"
 can_predict = predictive_mode and len(df) > 1
@@ -111,6 +109,9 @@ if analysis_mode in ["Both", "Precipitation Focus"]:
     if can_predict:
         model_r = LinearRegression().fit(hist_x, df['Rain_Signal'])
         preds_r = model_r.predict(fut_x)
+        if show_shade:
+            # Drawing the Confidence Shading
+            fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + 25, (preds_r - 25)[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.08)', line=dict(color='rgba(0,0,0,0)'), name="Rain σ Interval", hoverinfo='skip'), secondary_y=False)
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Rain Trend", line=dict(dash='dashdot', color='#00d2ff', width=2)), secondary_y=False)
 
 # Temperature Stream
@@ -120,15 +121,16 @@ if analysis_mode in ["Both", "Temperature Focus"]:
     if can_predict:
         model_t = LinearRegression().fit(hist_x, df['Temp_Signal'])
         preds_t = model_t.predict(fut_x)
+        if show_shade:
+            fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_t + 0.15, (preds_t - 0.15)[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.08)', line=dict(color='rgba(0,0,0,0)'), name="Temp σ Interval", hoverinfo='skip'), secondary_y=True)
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_t, name="Thermal Trend", line=dict(dash='dashdot', color='#ff4b4b', width=2.5)), secondary_y=True)
 
-fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=550)
+fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=550, hovermode="x unified")
 st.plotly_chart(fig_main, use_container_width=True)
 
 # --- 6. SPATIAL & CLIMATOLOGY ---
 st.divider()
 c_map, c_cycle, c_risk = st.columns([1, 1.2, 1])
-
 with c_map:
     st.markdown('<p class="sector-header">Geographic Analysis</p>', unsafe_allow_html=True)
     st.map(df[['Lat', 'Lon']].head(1).rename(columns={'Lat': 'lat', 'Lon': 'lon'}), zoom=6)
@@ -156,7 +158,6 @@ with c_risk:
 st.sidebar.divider()
 st.sidebar.markdown("**STRATEGIC INSIGHTS**")
 with st.sidebar:
-    # Historical disaster scanning
     drought_years = df[df['Rain_Anomaly_mm'] < -250]['Year'].tolist()
     flood_years = df[df['Rain_Anomaly_mm'] > 200]['Year'].tolist()
 
@@ -166,12 +167,11 @@ with st.sidebar:
     if flood_years:
         st.warning(f"🌊 FLOOD ALERT: Extreme rainfall recorded in {', '.join(map(str, flood_years))}.")
 
-    # Predictive risk scanning
     if can_predict:
         if preds_r[-1] < -150:
-            st.error(f"📉 PREDICTIVE RISK: Trend indicates increasing drought risk for {selected_region} by {forecast_horizon}.")
+            st.error(f"📉 PREDICTIVE RISK: Increasing drought vulnerability by {forecast_horizon}.")
         elif preds_r[-1] > 150:
-            st.warning(f"📈 PREDICTIVE RISK: Trend suggests high flood vulnerability by {forecast_horizon}.")
+            st.warning(f"📈 PREDICTIVE RISK: Increasing flood vulnerability by {forecast_horizon}.")
 
     st.info(f"📊 RELIABILITY: 74.0%. Statistical OLS verification active.")
 
