@@ -4,10 +4,9 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.linear_model import LinearRegression
-from datetime import datetime
 
 # --- 1. PRO-SUITE UI ARCHITECTURE ---
-st.set_page_config(page_title="GCI Pro-Suite | CAT Risk Intel", layout="wide")
+st.set_page_config(page_title="GCI Pro-Suite | Climate Intelligence", layout="wide")
 
 st.markdown("""
     <style>
@@ -23,12 +22,11 @@ st.markdown("""
     .metric-label { color: #8892b0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; }
     .metric-value { color: #00d2ff; font-size: 28px; font-weight: 800; }
     .sector-header { color: #ffffff; font-size: 18px; font-weight: 800; border-bottom: 1px solid #34495e; padding-bottom: 8px; margin-bottom: 15px; }
-    .update-pulse { color: #00ffcc; font-size: 12px; font-family: monospace; }
     section[data-testid="stSidebar"] { background-color: #1a1c23; border-right: 1px solid #34495e; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. CORE DATA ENGINE & UPDATE LOGIC ---
+# --- 2. CORE DATA ENGINE ---
 @st.cache_data
 def load_and_weight_data():
     try:
@@ -41,6 +39,7 @@ def load_and_weight_data():
             'Rain_Anomaly_mm': np.random.normal(0, 15, len(years))
         })
     
+    # YOUR 16 REGIONS
     regions = {
         "Ashanti": [6.74, -1.52, 0.1, 5], "Greater Accra": [5.60, -0.19, 0.2, -8],
         "Northern": [9.40, -0.85, 0.8, -25], "Upper East": [10.80, -0.90, 0.9, -30],
@@ -62,32 +61,15 @@ def load_and_weight_data():
 
 df_raw = load_and_weight_data()
 
-# --- 3. COMMAND CENTER & NOTIFICATION LOGIC ---
+# --- 3. COMMAND CENTER ---
 st.sidebar.title("💎 COMMAND CENTER")
-
-# Automated Data Update Notification Logic
-current_quarter = "Q1 2026"
-next_update = "April 15, 2026"
-st.sidebar.markdown(f"""
-    <div style="background: rgba(0, 255, 204, 0.05); border: 1px solid #00ffcc; border-radius: 8px; padding: 10px; margin-bottom: 20px;">
-        <p class="update-pulse">● SYSTEM LIVE</p>
-        <p style="color: white; font-size: 12px; margin:0;"><b>Active Batch:</b> {current_quarter}</p>
-        <p style="color: #8892b0; font-size: 11px; margin:0;"><b>Next Sync:</b> {next_update}</p>
-    </div>
-""", unsafe_allow_html=True)
-
-# Trigger a "New Data" Alert simulation
-if st.sidebar.button("Check for Updates"):
-    st.toast("Scanning Meteorological Servers...", icon="📡")
-    st.success(f"Current Data ({current_quarter}) is verified and up-to-date.", icon="✅")
-
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
 analysis_mode = st.sidebar.radio("Primary Stream", ["Both", "Temperature Focus", "Precipitation Focus"])
 
 st.sidebar.divider()
-st.sidebar.markdown("**FORECAST SETTINGS**")
-predictive_mode = st.sidebar.toggle("Enable Predictive Analytics", value=True)
-show_shade = st.sidebar.toggle("Uncertainty Shading", value=True)
+st.sidebar.markdown("**PROJECTION SETTINGS**")
+predictive_mode = st.sidebar.toggle("Show Statistical Projections", value=True)
+show_shade = st.sidebar.toggle("Confidence Intervals (σ)", value=True)
 forecast_horizon = st.sidebar.slider("Projection Horizon", 2026, 2060, 2050)
 
 # SIGNAL PROCESSING
@@ -106,36 +88,49 @@ render_metric = lambda col, lab, val: col.markdown(f'<div class="glass-card"><p 
 render_metric(m1, "Mean Thermal Δ", f"+{avg_t:.2f} °C")
 render_metric(m2, "Mean Precip Δ", f"{avg_r:.1f} mm")
 render_metric(m3, "Reliability Index", "74.0%") 
-render_metric(m4, "Data Freshness", current_quarter)
+render_metric(m4, "Data Freshness", "Q1 2026")
 
-# --- 5. MAIN VISUALIZATION (CLEANED) ---
+# --- 5. MAIN VISUALIZATION (SCIENTIFIC BRANDING) ---
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 fut_x = np.arange(2026, forecast_horizon + 1).reshape(-1, 1)
 hist_x = df['Year'].values.reshape(-1, 1)
 
+# High-Visibility Hover Box
+hover_style = "<b>Year: %{x}</b><br>Value: %{y:.2f}<br><extra></extra>"
+
+# Precipitation (Secondary Y = False)
 if analysis_mode in ["Both", "Precipitation Focus"]:
-    fig_main.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Annual Rain", marker_color='rgba(0, 210, 255, 0.4)'), secondary_y=False)
+    fig_main.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Annual Precipitation", marker_color='rgba(0, 210, 255, 0.4)', hovertemplate=hover_style), secondary_y=False)
     if predictive_mode:
         model_r = LinearRegression().fit(hist_x, df['Rain_Signal'])
         preds_r = model_r.predict(fut_x)
         if show_shade:
-            fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + 12, (preds_r - 12)[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.05)', line=dict(color='rgba(0,0,0,0)'), name="Rain Uncertainty"), secondary_y=False)
-        fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Rain Trend", line=dict(dash='dot', color='#00d2ff')), secondary_y=False)
+            fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + 15, (preds_r - 15)[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.08)', line=dict(color='rgba(0,0,0,0)'), name="Precip. Confidence Interval", hoverinfo='skip'), secondary_y=False)
+        fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Rain Trend (Linear)", line=dict(dash='dashdot', color='#00d2ff', width=2), hovertemplate=hover_style), secondary_y=False)
 
+# Temperature (Secondary Y = True)
 if analysis_mode in ["Both", "Temperature Focus"]:
-    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Annual Temp", line=dict(color='rgba(255, 75, 75, 0.5)', width=2.5)), secondary_y=True)
-    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Signal'], name="Climate Signal", line=dict(color='#ff4b4b', width=1.8)), secondary_y=True)
+    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temperature Anomaly", line=dict(color='rgba(255, 75, 75, 0.5)', width=2), hovertemplate=hover_style), secondary_y=True)
+    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Signal'], name="Decadal Mean Signal", line=dict(color='#ff4b4b', width=2.5), hovertemplate=hover_style), secondary_y=True)
     if predictive_mode:
         model_t = LinearRegression().fit(hist_x, df['Temp_Signal'])
         preds_t = model_t.predict(fut_x)
         if show_shade:
-            fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_t + 0.15, (preds_t - 0.15)[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.05)', line=dict(color='rgba(0,0,0,0)'), name="Temp Uncertainty"), secondary_y=True)
-        fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_t, name="AI Projection", line=dict(dash='dot', color='#ff4b4b', width=2)), secondary_y=True)
+            fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_t + 0.15, (preds_t - 0.15)[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.08)', line=dict(color='rgba(0,0,0,0)'), name="Thermal Confidence Interval", hoverinfo='skip'), secondary_y=True)
+        fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_t, name="Thermal Trend (Linear)", line=dict(dash='dashdot', color='#ff4b4b', width=2.5), hovertemplate=hover_style), secondary_y=True)
 
-fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500, hovermode="x")
+fig_main.update_layout(
+    template="plotly_dark", 
+    paper_bgcolor='rgba(0,0,0,0)', 
+    plot_bgcolor='rgba(0,0,0,0)', 
+    height=550, 
+    hovermode="x unified",
+    hoverlabel=dict(bgcolor="#1a1c23", font_size=13, font_family="Arial", font_color="white", bordercolor="#00d2ff"),
+    legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
+)
 st.plotly_chart(fig_main, use_container_width=True)
 
-# --- 6. SPATIAL, CLIMATOLOGY & CAT GAUGE (BOTTOM ROW) ---
+# --- 6. SPATIAL, CLIMATOLOGY & CAT GAUGE ---
 st.divider()
 c_map, c_cycle, c_risk = st.columns([1, 1.2, 1])
 
@@ -153,13 +148,11 @@ with c_cycle:
     st.plotly_chart(fig_clim, use_container_width=True)
 
 with c_risk:
-    st.markdown('<p class="sector-header">CAT Risk Gauge</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sector-header">CAT Risk Analysis</p>', unsafe_allow_html=True)
     risk_score = min(int((avg_t / 1.1) * 100), 100) if avg_t > 0 else 10
     fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=risk_score, number={'suffix': "%"},
-        title={'text': "Exposure Score", 'font': {'size': 14}},
+        title={'text': "Exposure Index", 'font': {'size': 14}},
         gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#00d2ff"}, 
                'steps': [{'range': [0, 70], 'color': '#2c3e50'}, {'range': [70, 100], 'color': '#e74c3c'}]}))
     fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
     st.plotly_chart(fig_gauge, use_container_width=True)
-
-st.sidebar.download_button("📂 Export Pro Report", df.to_csv(index=False), f"GCI_Report_{selected_region}.csv")
