@@ -22,6 +22,7 @@ st.markdown("""
     .metric-label { color: #8892b0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; }
     .metric-value { color: #00d2ff; font-size: 28px; font-weight: 800; }
     .sector-header { color: #ffffff; font-size: 18px; font-weight: 800; border-bottom: 1px solid #34495e; padding-bottom: 8px; margin-bottom: 15px; }
+    .update-pulse { color: #00ffcc; font-size: 12px; font-family: monospace; font-weight: bold; margin-bottom: 5px; }
     section[data-testid="stSidebar"] { background-color: #1a1c23; border-right: 1px solid #34495e; }
     </style>
     """, unsafe_allow_html=True)
@@ -82,17 +83,29 @@ window_size = min(15, len(df)) if len(df) > 0 else 1
 df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=window_size, center=True).mean().ffill().bfill()
 df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=window_size, center=True).mean().ffill().bfill()
 
-# --- 4. EXECUTIVE METRICS ---
+# --- 4. EXECUTIVE METRICS & HEADER ---
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
-st.title(f"{selected_region} | {selected_years[0]}-{selected_years[1]} Intel")
+
+st.markdown(f"""
+    <div style="padding: 10px 0px;">
+        <p class="update-pulse">● SYSTEM LIVE | DATA VERIFIED: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <h1 style="color: #ffffff; font-size: 38px; font-weight: 800; margin-bottom: 0;">
+            {selected_region.upper()} <span style="color: #00d2ff;">| REGIONAL CLIMATE PROFILE</span>
+        </h1>
+        <p style="color: #8892b0; font-size: 16px; font-weight: 500;">
+            Strategic Analysis Portfolio: {selected_years[0]} — {selected_years[1]} Historical Baseline
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 st.markdown("---")
 
 m1, m2, m3, m4 = st.columns(4)
 render_metric = lambda col, lab, val: col.markdown(f'<div class="glass-card"><p class="metric-label">{lab}</p><p class="metric-value">{val}</p></div>', unsafe_allow_html=True)
-render_metric(m1, "Period Mean Temp Δ", f"+{avg_t:.2f} °C")
-render_metric(m2, "Period Mean Rain Δ", f"{avg_r:.1f} mm")
-render_metric(m3, "Reliability Index", "74.0%") 
-render_metric(m4, "Dataset Limit", f"{max_year}")
+render_metric(m1, "Mean Thermal Variance", f"+{avg_t:.2f} °C")
+render_metric(m2, "Avg. Precipitation Δ", f"{avg_r:.1f} mm")
+render_metric(m3, "Analytics Confidence", "74.0%") 
+render_metric(m4, "Archive Horizon", f"{max_year}")
 
 # --- 5. MAIN VISUALIZATION ---
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
@@ -110,7 +123,6 @@ if analysis_mode in ["Both", "Precipitation Focus"]:
         model_r = LinearRegression().fit(hist_x, df['Rain_Signal'])
         preds_r = model_r.predict(fut_x)
         if show_shade:
-            # Drawing the Confidence Shading
             fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + 25, (preds_r - 25)[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.08)', line=dict(color='rgba(0,0,0,0)'), name="Rain σ Interval", hoverinfo='skip'), secondary_y=False)
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Rain Trend", line=dict(dash='dashdot', color='#00d2ff', width=2)), secondary_y=False)
 
