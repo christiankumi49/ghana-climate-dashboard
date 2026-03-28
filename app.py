@@ -97,57 +97,66 @@ st.markdown("<br>", unsafe_allow_html=True)
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
 
-# CUSTOM HOVER TEMPLATE for visibility
-hovertemp_precip = "<b>Year: %{x}</b><br>Rainfall Anomaly: %{y:.1f} mm<extra></extra>"
-hovertemp_temp = "<b>Year: %{x}</b><br>Temp Anomaly: %{y:.2f} °C<extra></extra>"
+# DEFINE CLEAN HOVER TEMPLATES
+# <extra></extra> removes the secondary "trace name" box for a cleaner look
+hover_precip = "<b>Year: %{x}</b><br>Annual Rainfall: %{y:.1f} mm<extra></extra>"
+hover_temp_var = "<b>Year: %{x}</b><br>Annual Temp Var: %{y:.2f} °C<extra></extra>"
+hover_signal = "<b>Year: %{x}</b><br>25yr Climate Signal: %{y:.2f} °C<extra></extra>"
+hover_proj = "<b>Year: %{x}</b><br>2050 Projection: %{y:.2f} °C<extra></extra>"
 
 # Rainfall Stream
 if analysis_mode in ["Both", "Precipitation Focus"]:
-    # FIX: Increase marker_line_width and marker_color opacity for thicker bars
     fig_main.add_trace(go.Bar(
         x=df['Year'], y=df['Rain_Anomaly_mm'], 
         name="Annual Precip", 
-        marker_color='rgba(0, 210, 255, 0.4)',
-        marker_line=dict(width=0.5, color='rgba(0, 210, 255, 0.8)'),
-        hovertemplate=hovertemp_precip
+        marker_color='rgba(0, 210, 255, 0.5)', # Increased opacity
+        marker_line=dict(width=1.0, color='rgba(0, 210, 255, 1.0)'), # Thicker borders
+        hovertemplate=hover_precip
     ), secondary_y=False)
     
     preds_r = model_r.predict(fut_x)
-    if show_shade:
-        fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + (std_r*0.6), (preds_r - (std_r*0.6))[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.05)', line_color='rgba(0,0,0,0)', showlegend=False, hoverinfo='skip'), secondary_y=False)
     fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Precip Trend", line=dict(dash='dot', color='#00d2ff'), hoverinfo='skip'), secondary_y=False)
 
 # Temperature Stream
 if analysis_mode in ["Both", "Temperature Focus"]:
-    # FIX: Increased width and more visible RGBA for Annual Var
+    # 1. Annual Variance
     fig_main.add_trace(go.Scatter(
         x=df['Year'], y=df['Temp_Anomaly_C'], 
         name="Annual Var", 
-        line=dict(color='rgba(255, 75, 75, 0.5)', width=1.5),
-        hovertemplate=hovertemp_temp
+        line=dict(color='rgba(255, 75, 75, 0.4)', width=1.5),
+        hovertemplate=hover_temp_var
     ), secondary_y=True)
     
-    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Signal'], name="25yr Signal", line=dict(color='#ff4b4b', width=4), hoverinfo='skip'), secondary_y=True)
+    # 2. 25yr Signal (Refined Thickness)
+    fig_main.add_trace(go.Scatter(
+        x=df['Year'], y=df['Temp_Signal'], 
+        name="25yr Signal", 
+        line=dict(color='#ff4b4b', width=2.5), # Reduced from 4 for precision
+        hovertemplate=hover_signal
+    ), secondary_y=True)
     
+    # 3. 2050 Projection
     preds_t = model_t.predict(fut_x)
-    if show_shade:
-        fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_t + (std_t*0.4), (preds_t - (std_t*0.4))[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.1)', line_color='rgba(0,0,0,0)', showlegend=False, hoverinfo='skip'), secondary_y=True)
-    fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_t, name="2050 Projection", line=dict(dash='dot', color='#ff4b4b', width=3), hoverinfo='skip'), secondary_y=True)
+    fig_main.add_trace(go.Scatter(
+        x=fut_x.flatten(), y=preds_t, 
+        name="2050 Projection", 
+        line=dict(dash='dot', color='#ff4b4b', width=2),
+        hovertemplate=hover_proj
+    ), secondary_y=True)
 
-# FIX: Explicitly set hoverlabel styling for dark mode visibility
+# Layout adjustments for High-Contrast Visibility
 fig_main.update_layout(
     template="plotly_dark", 
     paper_bgcolor='rgba(0,0,0,0)', 
     plot_bgcolor='rgba(0,0,0,0)', 
-    height=550, 
+    height=600, 
     margin=dict(t=20, b=20),
-    hovermode="x unified",
+    hovermode="x", # Allows individual line selection
     hoverlabel=dict(
         bgcolor="#1a1c23",
-        font_size=12,
-        font_family="Inter",
+        font_size=13,
         font_color="white",
-        bordercolor="#34495e"
+        bordercolor="#00d2ff"
     ),
     legend=dict(orientation="h", y=1.1, x=1, xanchor="right")
 )
@@ -173,10 +182,4 @@ with c_cycle:
 
 with c_risk:
     st.markdown('<p class="sector-header">Strategic Risk Score</p>', unsafe_allow_html=True)
-    risk_score = min(int((avg_t / 1.1) * 100), 100) if avg_t > 0 else 10
-    fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=risk_score, number={'suffix': "%"},
-        gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#00d2ff"}, 'steps': [{'range': [0, 80], 'color': '#2c3e50'}, {'range': [80, 100], 'color': '#e74c3c'}]}))
-    fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
-    st.plotly_chart(fig_gauge, use_container_width=True)
-
-st.sidebar.download_button("📂 Export Pro Report", df.to_csv(index=False), f"GCI_Strategic_Report_{selected_region}.csv")
+    risk_
