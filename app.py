@@ -174,10 +174,14 @@ with c_risk:
     fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-# --- 7. STRATEGIC INSIGHTS & EXPORT ---
+# --- 7. STRATEGIC INSIGHTS & DROUGHT ALERT ---
 st.sidebar.divider()
 st.sidebar.markdown("**STRATEGIC INSIGHTS**")
 with st.sidebar:
+    # --- DROUGHT ALERT LOGIC ---
+    if avg_r < -300:
+        st.warning(f"🚨 CRITICAL DROUGHT ALERT: {selected_region} mean rainfall deficit ({avg_r:.1f} mm) exceeds safe thresholds. Benchmark matches 1983 hydrological failure.")
+    
     if risk_score > 70:
         st.error(f"⚠️ HIGH RISK ALERT: {selected_region} shows severe CAT exposure.")
     else:
