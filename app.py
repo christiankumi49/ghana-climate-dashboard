@@ -29,7 +29,11 @@ def load_and_weight_data():
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
     except:
         years = range(1901, 2026)
-        df = pd.DataFrame({'Year': years, 'Temp_Anomaly_C': np.random.normal(0.6, 0.15, len(years)), 'Rain_Anomaly_mm': np.random.normal(0, 15, len(years))})
+        df = pd.DataFrame({
+            'Year': years, 
+            'Temp_Anomaly_C': np.random.normal(0.6, 0.15, len(years)), 
+            'Rain_Anomaly_mm': np.random.normal(0, 15, len(years))
+        })
     
     regions = {
         "Ashanti": [6.74, -1.52, 0.1, 5], "Greater Accra": [5.60, -0.19, 0.2, -8],
@@ -54,11 +58,9 @@ st.sidebar.title("💎 COMMAND CENTER")
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
 analysis_mode = st.sidebar.radio("Primary Stream", ["Both", "Temperature Focus", "Precipitation Focus"])
 show_shade = st.sidebar.toggle("Enable Uncertainty Shading", value=True)
-
-# FIXED PREDICTIVE HORIZON: 2050 for maximum strategic trust
 forecast_horizon = st.sidebar.slider("Projection Horizon", 2030, 2050, 2050)
 
-# SIGNAL PROCESSING: 25-Year Deep Climate Filter
+# SIGNAL PROCESSING (25-Year Filter)
 df = df_raw[df_raw['Region'] == selected_region].copy()
 df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=25, center=True).mean().ffill().bfill()
 df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=25, center=True).mean().ffill().bfill()
@@ -67,7 +69,6 @@ hist_x = df['Year'].values.reshape(-1, 1)
 model_t = LinearRegression().fit(hist_x, df['Temp_Signal'])
 model_r = LinearRegression().fit(hist_x, df['Rain_Signal'])
 
-# Deep Climate Stability Index
 raw_r2 = model_t.score(hist_x, df['Temp_Signal'])
 reliability_index = min(0.98, raw_r2 * 1.25) 
 
@@ -96,25 +97,60 @@ st.markdown("<br>", unsafe_allow_html=True)
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
 
+# CUSTOM HOVER TEMPLATE for visibility
+hovertemp_precip = "<b>Year: %{x}</b><br>Rainfall Anomaly: %{y:.1f} mm<extra></extra>"
+hovertemp_temp = "<b>Year: %{x}</b><br>Temp Anomaly: %{y:.2f} °C<extra></extra>"
+
 # Rainfall Stream
 if analysis_mode in ["Both", "Precipitation Focus"]:
-    fig_main.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Annual Precip", marker_color='rgba(0, 210, 255, 0.1)'), secondary_y=False)
+    # FIX: Increase marker_line_width and marker_color opacity for thicker bars
+    fig_main.add_trace(go.Bar(
+        x=df['Year'], y=df['Rain_Anomaly_mm'], 
+        name="Annual Precip", 
+        marker_color='rgba(0, 210, 255, 0.4)',
+        marker_line=dict(width=0.5, color='rgba(0, 210, 255, 0.8)'),
+        hovertemplate=hovertemp_precip
+    ), secondary_y=False)
+    
     preds_r = model_r.predict(fut_x)
     if show_shade:
-        fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + (std_r*0.6), (preds_r - (std_r*0.6))[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.05)', line_color='rgba(0,0,0,0)', showlegend=False), secondary_y=False)
-    fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Precip Trend", line=dict(dash='dot', color='#00d2ff')), secondary_y=False)
+        fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_r + (std_r*0.6), (preds_r - (std_r*0.6))[::-1]]), fill='toself', fillcolor='rgba(0, 210, 255, 0.05)', line_color='rgba(0,0,0,0)', showlegend=False, hoverinfo='skip'), secondary_y=False)
+    fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Precip Trend", line=dict(dash='dot', color='#00d2ff'), hoverinfo='skip'), secondary_y=False)
 
 # Temperature Stream
 if analysis_mode in ["Both", "Temperature Focus"]:
-    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Annual Var", line=dict(color='rgba(255, 75, 75, 0.15)', width=1)), secondary_y=True)
-    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Signal'], name="25yr Climate Signal", line=dict(color='#ff4b4b', width=3.5)), secondary_y=True)
+    # FIX: Increased width and more visible RGBA for Annual Var
+    fig_main.add_trace(go.Scatter(
+        x=df['Year'], y=df['Temp_Anomaly_C'], 
+        name="Annual Var", 
+        line=dict(color='rgba(255, 75, 75, 0.5)', width=1.5),
+        hovertemplate=hovertemp_temp
+    ), secondary_y=True)
+    
+    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Signal'], name="25yr Signal", line=dict(color='#ff4b4b', width=4), hoverinfo='skip'), secondary_y=True)
     
     preds_t = model_t.predict(fut_x)
     if show_shade:
-        fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_t + (std_t*0.4), (preds_t - (std_t*0.4))[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.1)', line_color='rgba(0,0,0,0)', showlegend=False), secondary_y=True)
-    fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_t, name="2050 Strategic Projection", line=dict(dash='dot', color='#ff4b4b', width=3)), secondary_y=True)
+        fig_main.add_trace(go.Scatter(x=np.concatenate([fut_x.flatten(), fut_x.flatten()[::-1]]), y=np.concatenate([preds_t + (std_t*0.4), (preds_t - (std_t*0.4))[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.1)', line_color='rgba(0,0,0,0)', showlegend=False, hoverinfo='skip'), secondary_y=True)
+    fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_t, name="2050 Projection", line=dict(dash='dot', color='#ff4b4b', width=3), hoverinfo='skip'), secondary_y=True)
 
-fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500, margin=dict(t=20, b=20), legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
+# FIX: Explicitly set hoverlabel styling for dark mode visibility
+fig_main.update_layout(
+    template="plotly_dark", 
+    paper_bgcolor='rgba(0,0,0,0)', 
+    plot_bgcolor='rgba(0,0,0,0)', 
+    height=550, 
+    margin=dict(t=20, b=20),
+    hovermode="x unified",
+    hoverlabel=dict(
+        bgcolor="#1a1c23",
+        font_size=12,
+        font_family="Inter",
+        font_color="white",
+        bordercolor="#34495e"
+    ),
+    legend=dict(orientation="h", y=1.1, x=1, xanchor="right")
+)
 st.plotly_chart(fig_main, use_container_width=True)
 
 # --- 6. SPATIAL & RISK ROW ---
@@ -127,7 +163,7 @@ with c_map:
     st.map(target_loc, zoom=7)
 
 with c_cycle:
-    st.markdown('<p class="sector-header">Monthly Climatology Peak</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sector-header">Monthly Climatology</p>', unsafe_allow_html=True)
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     clim_r = [15, 25, 60, 100, 160, 210, 140, 80, 150, 120, 40, 20] if "North" not in selected_region else [5, 10, 25, 55, 95, 135, 185, 245, 215, 85, 20, 5]
     fig_cycle = go.Figure()
@@ -138,7 +174,7 @@ with c_cycle:
 with c_risk:
     st.markdown('<p class="sector-header">Strategic Risk Score</p>', unsafe_allow_html=True)
     risk_score = min(int((avg_t / 1.1) * 100), 100) if avg_t > 0 else 10
-    fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=risk_score, number={'suffix': "%", 'font': {'color': "#ffffff"}},
+    fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=risk_score, number={'suffix': "%"},
         gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#00d2ff"}, 'steps': [{'range': [0, 80], 'color': '#2c3e50'}, {'range': [80, 100], 'color': '#e74c3c'}]}))
     fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
     st.plotly_chart(fig_gauge, use_container_width=True)
