@@ -15,7 +15,6 @@ st.markdown("""
     .metric-value { color: #ffffff !important; font-size: 28px; font-weight: 800; }
     .sector-header { color: #ffffff !important; font-size: 18px; font-weight: 800; border-bottom: 1px solid #34495e; padding-bottom: 8px; margin-bottom: 15px; }
     section[data-testid="stSidebar"] { background-color: #1a1c23; border-right: 1px solid #34495e; }
-    .stProgress > div > div > div > div { background-color: #00d2ff; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -40,7 +39,8 @@ def load_and_weight_data():
         "Northern": [9.40, -0.85, 0.8, -25], "Western": [5.55, -2.15, -0.2, 20],
         "Upper East": [10.80, -0.90, 0.9, -30], "Volta": [6.50, 0.45, 0.3, 10],
         "Central": [5.50, -1.20, 0.0, 12], "Eastern": [6.10, -0.30, 0.1, 8],
-        "Bono": [7.58, -2.33, 0.2, -5], "Savannah": [9.08, -1.82, 0.7, -20]
+        "Bono": [7.58, -2.33, 0.2, -5], "Savannah": [9.08, -1.82, 0.7, -20],
+        "Upper West": [10.20, -2.10, 0.85, -28]
     }
     
     all_dfs = []
@@ -57,99 +57,58 @@ df_raw = load_and_weight_data()
 st.sidebar.title("💎 COMMAND CENTER")
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
 analysis_mode = st.sidebar.radio("Primary Stream", ["Both", "Temperature Focus", "Precipitation Focus"])
-show_shade = st.sidebar.toggle("Enable Uncertainty Shading", value=True)
-forecast_horizon = st.sidebar.slider("Projection Horizon", 2030, 2050, 2050)
 
-# SIGNAL PROCESSING (25-Year Filter)
+st.sidebar.divider()
+st.sidebar.markdown("**FORECAST SETTINGS**")
+# NEW: Predictive Mode Toggle
+predictive_mode = st.sidebar.toggle("Enable Predictive Analytics", value=True)
+# NEW: Flexible Projection Slider
+forecast_horizon = st.sidebar.slider("Projection Horizon", 2026, 2060, 2050)
+
+# SIGNAL PROCESSING
 df = df_raw[df_raw['Region'] == selected_region].copy()
 df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=25, center=True).mean().ffill().bfill()
 df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=25, center=True).mean().ffill().bfill()
 
-hist_x = df['Year'].values.reshape(-1, 1)
-model_t = LinearRegression().fit(hist_x, df['Temp_Signal'])
-model_r = LinearRegression().fit(hist_x, df['Rain_Signal'])
-
-raw_r2 = model_t.score(hist_x, df['Temp_Signal'])
-reliability_index = min(0.98, raw_r2 * 1.25) 
-
-st.sidebar.divider()
-st.sidebar.markdown("**DEEP CLIMATE DIAGNOSTICS**")
-st.sidebar.progress(float(reliability_index))
-st.sidebar.caption(f"Multi-Decadal Reliability: {reliability_index*100:.1f}%")
-
 # --- 4. EXECUTIVE METRICS ---
-avg_t, std_t = df['Temp_Anomaly_C'].mean(), df['Temp_Anomaly_C'].std()
-avg_r, std_r = df['Rain_Anomaly_mm'].mean(), df['Rain_Anomaly_mm'].std()
+avg_t = df['Temp_Anomaly_C'].mean()
+avg_r = df['Rain_Anomaly_mm'].mean()
 
 st.title(f"{selected_region} | Climate Intelligence")
 st.markdown("---")
 
 m1, m2, m3, m4 = st.columns(4)
-render_metric = lambda col, lab, val, pref="": col.markdown(f'<div class="metric-container"><p class="metric-label">{lab}</p><p class="metric-value">{pref}{val}</p></div>', unsafe_allow_html=True)
+render_metric = lambda col, lab, val: col.markdown(f'<div class="metric-container"><p class="metric-label">{lab}</p><p class="metric-value">{val}</p></div>', unsafe_allow_html=True)
 
-render_metric(m1, "Mean Thermal Δ", f"{avg_t:.2f} °C", "+")
-render_metric(m2, "Thermal σ (Var)", f"±{std_t:.2f}")
+render_metric(m1, "Mean Thermal Δ", f"+{avg_t:.2f} °C")
+render_metric(m2, "Regional Deviation", f"{'High' if avg_t > 0.7 else 'Normal'}")
 render_metric(m3, "Mean Precip Δ", f"{avg_r:.1f} mm")
-render_metric(m4, "Strategic Trust Index", f"{reliability_index*100:.1f}%")
+render_metric(m4, "Data Freshness", "Q1 2026")
 
 # --- 5. DATA VISUALIZATION ENGINE ---
-st.markdown("<br>", unsafe_allow_html=True)
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
-fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
+hover_temp = "<b>Year: %{x}</b><br>Temp Anomaly: %{y:.2f} °C<extra></extra>"
+hover_signal = "<b>Year: %{x}</b><br>25yr Trend: %{y:.2f} °C<extra></extra>"
 
-# DEFINE CLEAN HOVER TEMPLATES
-hover_precip = "<b>Year: %{x}</b><br>Annual Rainfall: %{y:.1f} mm<extra></extra>"
-hover_temp_var = "<b>Year: %{x}</b><br>Annual Temp Var: %{y:.2f} °C<extra></extra>"
-hover_signal = "<b>Year: %{x}</b><br>25yr Climate Signal: %{y:.2f} °C<extra></extra>"
-hover_proj = "<b>Year: %{x}</b><br>2050 Projection: %{y:.2f} °C<extra></extra>"
+# Temperature Data
+fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Annual Var", line=dict(color='rgba(255, 75, 75, 0.4)', width=1.5), hovertemplate=hover_temp), secondary_y=True)
+fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Signal'], name="25yr Signal", line=dict(color='#ff4b4b', width=2.5), hovertemplate=hover_signal), secondary_y=True)
 
-# Rainfall Stream
-if analysis_mode in ["Both", "Precipitation Focus"]:
-    fig_main.add_trace(go.Bar(
-        x=df['Year'], y=df['Rain_Anomaly_mm'], 
-        name="Annual Precip", 
-        marker_color='rgba(0, 210, 255, 0.5)',
-        marker_line=dict(width=1.0, color='rgba(0, 210, 255, 1.0)'),
-        hovertemplate=hover_precip
-    ), secondary_y=False)
-    
-    preds_r = model_r.predict(fut_x)
-    fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_r, name="Precip Trend", line=dict(dash='dot', color='#00d2ff'), hoverinfo='skip'), secondary_y=False)
-
-# Temperature Stream
-if analysis_mode in ["Both", "Temperature Focus"]:
-    fig_main.add_trace(go.Scatter(
-        x=df['Year'], y=df['Temp_Anomaly_C'], 
-        name="Annual Var", 
-        line=dict(color='rgba(255, 75, 75, 0.4)', width=1.5),
-        hovertemplate=hover_temp_var
-    ), secondary_y=True)
-    
-    fig_main.add_trace(go.Scatter(
-        x=df['Year'], y=df['Temp_Signal'], 
-        name="25yr Signal", 
-        line=dict(color='#ff4b4b', width=2.5),
-        hovertemplate=hover_signal
-    ), secondary_y=True)
-    
+# NEW: Conditional Predictive Logic
+if predictive_mode:
+    hist_x = df['Year'].values.reshape(-1, 1)
+    model_t = LinearRegression().fit(hist_x, df['Temp_Signal'])
+    fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
     preds_t = model_t.predict(fut_x)
+    
     fig_main.add_trace(go.Scatter(
         x=fut_x.flatten(), y=preds_t, 
-        name="2050 Projection", 
+        name=f"Projection to {forecast_horizon}", 
         line=dict(dash='dot', color='#ff4b4b', width=2),
-        hovertemplate=hover_proj
+        hovertemplate="<b>Year: %{x}</b><br>Proj: %{y:.2f} °C<extra></extra>"
     ), secondary_y=True)
 
-fig_main.update_layout(
-    template="plotly_dark", 
-    paper_bgcolor='rgba(0,0,0,0)', 
-    plot_bgcolor='rgba(0,0,0,0)', 
-    height=600, 
-    margin=dict(t=20, b=20),
-    hovermode="x",
-    hoverlabel=dict(bgcolor="#1a1c23", font_size=13, font_color="white", bordercolor="#00d2ff"),
-    legend=dict(orientation="h", y=1.1, x=1, xanchor="right")
-)
+fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=550, hovermode="x")
 st.plotly_chart(fig_main, use_container_width=True)
 
 # --- 6. SPATIAL & RISK ROW ---
@@ -164,9 +123,18 @@ with c_map:
 with c_cycle:
     st.markdown('<p class="sector-header">Monthly Climatology</p>', unsafe_allow_html=True)
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    clim_r = [15, 25, 60, 100, 160, 210, 140, 80, 150, 120, 40, 20] if "North" not in selected_region else [5, 10, 25, 55, 95, 135, 185, 245, 215, 85, 20, 5]
+    
+    # FIXED: Scientific Regime Logic
+    northern_regions = ["Upper East", "Upper West", "Northern", "Savannah"]
+    if selected_region in northern_regions:
+        # Unimodal Peak in August
+        clim_r = [5, 10, 25, 55, 95, 155, 210, 260, 220, 85, 15, 5]
+    else:
+        # Bimodal peaks in June and September
+        clim_r = [15, 30, 70, 110, 160, 220, 140, 80, 165, 125, 45, 20]
+        
     fig_cycle = go.Figure()
-    fig_cycle.add_trace(go.Scatter(x=months, y=clim_r, name="LTM Mean", fill='tozeroy', line=dict(color='#00d2ff', width=2)))
+    fig_cycle.add_trace(go.Scatter(x=months, y=clim_r, name="Monthly Mean", fill='tozeroy', line=dict(color='#00d2ff', width=3)))
     fig_cycle.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(t=0, b=0))
     st.plotly_chart(fig_cycle, use_container_width=True)
 
@@ -178,4 +146,4 @@ with c_risk:
     fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-st.sidebar.download_button("📂 Export Strategic Report", df.to_csv(index=False), f"GCI_Strategic_Report_{selected_region}.csv")
+st.sidebar.download_button("📂 Export Pro Report", df.to_csv(index=False), f"GCI_Report_{selected_region}.csv")
