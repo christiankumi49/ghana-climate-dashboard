@@ -5,14 +5,15 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # --- CONFIG & THEME ---
-st.set_page_config(page_title="Ghana Climate Intel | Professional", layout="wide")
+st.set_page_config(page_title="Ghana Climate Intel | Pro-Insight", layout="wide")
 
-# CSS to remove all boxes and force black text visibility
+# CSS to fix visibility: High contrast colors for text
 st.markdown("""
     <style>
     .main { background-color: #ffffff; }
-    .metric-label { color: #636e72; font-size: 14px; font-weight: bold; margin-bottom: -10px; }
-    .metric-value { color: #000000; font-size: 32px; font-weight: 800; }
+    .metric-label { color: #000000 !important; font-size: 15px; font-weight: 900; margin-bottom: -5px; }
+    .metric-value { color: #0984e3 !important; font-size: 36px; font-weight: 900; line-height: 1.2; }
+    .sector-card { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-top: 4px solid #0984e3; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -72,7 +73,7 @@ avg_r = df['Rain_Anomaly_mm'].mean()
 st.title(f"🌍 {selected_region} | Climate Risk Intelligence")
 st.markdown("---")
 
-# --- PARAMETERS (No Boxes, Just Text) ---
+# --- HIGH-VISIBILITY PARAMETERS ---
 c1, c2, c3, c4 = st.columns(4)
 
 def clean_metric(col, label, value):
@@ -90,7 +91,6 @@ st.markdown("<br>", unsafe_allow_html=True)
 st.subheader(f"Temporal Analysis & {forecast_horizon} Risk Horizon")
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-# Historical Data
 if target_var in ["Both", "Rainfall"]:
     fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", 
                          marker_color='#0984e3', opacity=0.3), secondary_y=False)
@@ -99,37 +99,35 @@ if target_var in ["Both", "Temperature"]:
     fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly", 
                              line=dict(color='#d63031', width=3)), secondary_y=True)
 
-# Forecast & Shading Logic
+# Forecast Logic
 if enable_forecast:
     last_yr = int(df['Year'].max())
     future_x = np.arange(last_yr + 1, forecast_horizon + 1).reshape(-1, 1)
     hist_x = df['Year'].values.reshape(-1, 1)
 
-    # Temperature
     model_t = LinearRegression().fit(hist_x, df['Temp_Anomaly_C'])
     preds_t = model_t.predict(future_x)
-    std_t = df['Temp_Anomaly_C'].std() * 0.5
-
-    # Rainfall
+    
     model_r = LinearRegression().fit(hist_x, df['Rain_Anomaly_mm'])
     preds_r = model_r.predict(future_x)
-    std_r = df['Rain_Anomaly_mm'].std() * 0.8
 
     if target_var in ["Both", "Temperature"]:
         if show_shading:
+            std_t = df['Temp_Anomaly_C'].std() * 0.5
             fig.add_trace(go.Scatter(x=np.concatenate([future_x.flatten(), future_x.flatten()[::-1]]),
                                      y=np.concatenate([preds_t + std_t, (preds_t - std_t)[::-1]]),
                                      fill='toself', fillcolor='rgba(214, 48, 49, 0.1)', line_color='rgba(0,0,0,0)',
-                                     name="Temp Confidence", showlegend=False), secondary_y=True)
+                                     name="Temp Uncertainty", showlegend=False), secondary_y=True)
         fig.add_trace(go.Scatter(x=future_x.flatten(), y=preds_t, name="Temp Forecast", 
                                  line=dict(dash='dot', color='#d63031')), secondary_y=True)
 
     if target_var in ["Both", "Rainfall"]:
         if show_shading:
+            std_r = df['Rain_Anomaly_mm'].std() * 0.8
             fig.add_trace(go.Scatter(x=np.concatenate([future_x.flatten(), future_x.flatten()[::-1]]),
                                      y=np.concatenate([preds_r + std_r, (preds_r - std_r)[::-1]]),
                                      fill='toself', fillcolor='rgba(9, 132, 227, 0.1)', line_color='rgba(0,0,0,0)',
-                                     name="Rain Confidence", showlegend=False), secondary_y=False)
+                                     name="Rain Uncertainty", showlegend=False), secondary_y=False)
         fig.add_trace(go.Scatter(x=future_x.flatten(), y=preds_r, name="Rain Forecast", 
                                  line=dict(dash='dot', color='#0984e3')), secondary_y=False)
 
@@ -137,6 +135,35 @@ fig.update_yaxes(title_text="<b>Rainfall</b> (mm)", secondary_y=False)
 fig.update_yaxes(title_text="<b>Temperature</b> (°C)", secondary_y=True)
 fig.update_layout(template="plotly_white", hovermode="x unified", legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
 st.plotly_chart(fig, use_container_width=True)
+
+# --- SECTOR INTELLIGENCE (The "Who Benefits" Section) ---
+st.divider()
+st.subheader(f"💡 Strategic Intelligence: {selected_region} ({forecast_horizon})")
+col_f, col_e, col_g = st.columns(3)
+
+with col_f:
+    st.markdown('<div class="sector-card">', unsafe_allow_html=True)
+    st.write("🧑‍🌾 **Agriculture Advisory**")
+    if avg_t > 0.5:
+        st.write(f"By {forecast_horizon}, thermal stress in {selected_region} may reduce cocoa yields. Suggesting heat-tolerant varieties.")
+    else:
+        st.write(f"Conditions in {selected_region} are stable for current crop cycles. Maintain standard irrigation.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col_e:
+    st.markdown('<div class="sector-card">', unsafe_allow_html=True)
+    st.write("☀️ **Energy & Infrastructure**")
+    if avg_r < -10:
+        st.write(f"Decreasing rainfall trends suggest a high risk for Hydro-electric reliability. Transition to Solar is recommended.")
+    else:
+        st.write(f"Rainfall patterns support stable hydroelectric output. Solar PV efficiency remains high.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col_g:
+    st.markdown('<div class="sector-card">', unsafe_allow_html=True)
+    st.write("🏛️ **Policy & Planning**")
+    st.write(f"CAT Risk is **{('High' if avg_t > 0.6 else 'Moderate')}**. Urban planning in {selected_region} should prioritize heat-mitigation infrastructure.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- MAP & REPORT ---
 st.divider()
@@ -150,7 +177,7 @@ with c_map:
 with c_brief:
     st.subheader("📝 Analyst Briefing")
     if avg_t > 0.5:
-        st.error(f"Region {selected_region} is exhibiting thermal stress. Adaptation measures required.")
+        st.error(f"Region {selected_region} is exhibiting thermal stress. Immediate adaptation measures required.")
     else:
         st.success(f"Region {selected_region} metrics are stable.")
     st.sidebar.download_button("📂 Download Intelligence Report", df.to_csv(index=False), f"Pro_Report_{selected_region}.csv")
