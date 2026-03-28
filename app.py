@@ -7,13 +7,17 @@ from plotly.subplots import make_subplots
 # --- CONFIG & THEME ---
 st.set_page_config(page_title="Ghana Climate Intel | Pro-Insight", layout="wide")
 
-# CSS to fix visibility: High contrast colors for text
+# CSS to fix visibility: High contrast colors for text & Removal of all boxes
 st.markdown("""
     <style>
     .main { background-color: #ffffff; }
+    /* High contrast for top parameters */
     .metric-label { color: #000000 !important; font-size: 15px; font-weight: 900; margin-bottom: -5px; }
     .metric-value { color: #0984e3 !important; font-size: 36px; font-weight: 900; line-height: 1.2; }
-    .sector-card { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-top: 4px solid #0984e3; }
+    
+    /* Transparent Advisory Section (No White Boxes) */
+    .sector-header { color: #000000 !important; font-size: 18px; font-weight: 900; margin-bottom: 5px; }
+    .sector-text { color: #2d3436 !important; font-size: 15px; font-weight: 500; line-height: 1.4; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -136,34 +140,28 @@ fig.update_yaxes(title_text="<b>Temperature</b> (°C)", secondary_y=True)
 fig.update_layout(template="plotly_white", hovermode="x unified", legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- SECTOR INTELLIGENCE (The "Who Benefits" Section) ---
+# --- CLEAN STRATEGIC INTELLIGENCE (No Boxes) ---
 st.divider()
 st.subheader(f"💡 Strategic Intelligence: {selected_region} ({forecast_horizon})")
 col_f, col_e, col_g = st.columns(3)
 
 with col_f:
-    st.markdown('<div class="sector-card">', unsafe_allow_html=True)
-    st.write("🧑‍🌾 **Agriculture Advisory**")
+    st.markdown('<p class="sector-header">🧑‍🌾 Agriculture Advisory</p>', unsafe_allow_html=True)
     if avg_t > 0.5:
-        st.write(f"By {forecast_horizon}, thermal stress in {selected_region} may reduce cocoa yields. Suggesting heat-tolerant varieties.")
+        st.markdown(f'<p class="sector-text">By {forecast_horizon}, thermal stress in {selected_region} may reduce cocoa yields. Suggesting heat-tolerant varieties.</p>', unsafe_allow_html=True)
     else:
-        st.write(f"Conditions in {selected_region} are stable for current crop cycles. Maintain standard irrigation.")
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sector-text">Conditions in {selected_region} are stable for current crop cycles. Maintain standard irrigation.</p>', unsafe_allow_html=True)
 
 with col_e:
-    st.markdown('<div class="sector-card">', unsafe_allow_html=True)
-    st.write("☀️ **Energy & Infrastructure**")
+    st.markdown('<p class="sector-header">☀️ Energy & Infrastructure</p>', unsafe_allow_html=True)
     if avg_r < -10:
-        st.write(f"Decreasing rainfall trends suggest a high risk for Hydro-electric reliability. Transition to Solar is recommended.")
+        st.markdown(f'<p class="sector-text">Decreasing rainfall trends suggest a high risk for Hydro-electric reliability. Transition to Solar is recommended.</p>', unsafe_allow_html=True)
     else:
-        st.write(f"Rainfall patterns support stable hydroelectric output. Solar PV efficiency remains high.")
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sector-text">Rainfall patterns support stable hydroelectric output. Solar PV efficiency remains high.</p>', unsafe_allow_html=True)
 
 with col_g:
-    st.markdown('<div class="sector-card">', unsafe_allow_html=True)
-    st.write("🏛️ **Policy & Planning**")
-    st.write(f"CAT Risk is **{('High' if avg_t > 0.6 else 'Moderate')}**. Urban planning in {selected_region} should prioritize heat-mitigation infrastructure.")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<p class="sector-header">🏛️ Policy & Planning</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="sector-text">CAT Risk is <b>{("High" if avg_t > 0.6 else "Moderate")}</b>. Urban planning in {selected_region} should prioritize heat-mitigation infrastructure.</p>', unsafe_allow_html=True)
 
 # --- MAP & REPORT ---
 st.divider()
