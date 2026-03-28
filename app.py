@@ -31,9 +31,11 @@ st.markdown("""
 @st.cache_data
 def load_historical_engine():
     try:
+        # Try to load your real CSV first
         df = pd.read_csv('Ghana_Climate_Anomalies_Aligned.csv')
     except:
-        years = np.arange(1901, 2022)
+        # Fallback to simulated data if CSV is missing
+        years = np.arange(1901, 2026)
         df = pd.DataFrame({
             'Year': years, 
             'Temp_Anomaly_C': np.random.normal(0.6, 0.15, len(years)) + (years-1901)*0.004, 
@@ -54,8 +56,11 @@ def load_historical_engine():
     all_dfs = []
     for reg, (lat, lon, t_off, r_off) in regions.items():
         temp = df.copy().assign(Region=reg, Lat=lat, Lon=lon)
-        temp['Temp_Anomaly_C'] += t_off
-        temp['Rain_Anomaly_mm'] += r_off
+        # Apply regional offsets to simulate local climate variance
+        if 'Temp_Anomaly_C' in temp.columns:
+            temp['Temp_Anomaly_C'] += t_off
+        if 'Rain_Anomaly_mm' in temp.columns:
+            temp['Rain_Anomaly_mm'] += r_off
         all_dfs.append(temp)
     return pd.concat(all_dfs)
 
@@ -71,7 +76,7 @@ analysis_mode = st.sidebar.radio("Primary Stream", ["Both", "Temperature Focus",
 st.sidebar.divider()
 st.sidebar.markdown("**ANALYTICS ENGINE**")
 predictive_mode = st.sidebar.toggle("Enable Statistical Projections", value=True)
-show_shade = st.sidebar.toggle("Show Confidence Intervals (σ)", value=predictive_mode)
+show_shade = st.sidebar.toggle(r"Show Confidence Intervals (σ)", value=predictive_mode)
 forecast_horizon = st.sidebar.slider("Projection Horizon", max_year, 2060, 2050) if predictive_mode else max_year
 
 # SIGNAL PROCESSING
@@ -83,7 +88,7 @@ window_size = min(15, len(df)) if len(df) > 0 else 1
 df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=window_size, center=True).mean().ffill().bfill()
 df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=window_size, center=True).mean().ffill().bfill()
 
-# --- 4. EXECUTIVE METRICS & HEADER ---
+# --- 4. EXECUTIVE METRICS ---
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 
 st.markdown(f"""
@@ -92,13 +97,8 @@ st.markdown(f"""
         <h1 style="color: #ffffff; font-size: 38px; font-weight: 800; margin-bottom: 0;">
             {selected_region.upper()} <span style="color: #00d2ff;">| REGIONAL CLIMATE PROFILE</span>
         </h1>
-        <p style="color: #8892b0; font-size: 16px; font-weight: 500;">
-            Strategic Analysis Portfolio: {selected_years[0]} — {selected_years[1]} Historical Baseline
-        </p>
     </div>
     """, unsafe_allow_html=True)
-
-st.markdown("---")
 
 m1, m2, m3, m4 = st.columns(4)
 render_metric = lambda col, lab, val: col.markdown(f'<div class="glass-card"><p class="metric-label">{lab}</p><p class="metric-value">{val}</p></div>', unsafe_allow_html=True)
@@ -110,7 +110,7 @@ render_metric(m4, "Archive Horizon", f"{max_year}")
 # --- 5. MAIN VISUALIZATION ---
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 hover_style = "<b>Year: %{x}</b><br>Value: %{y:.2f}<br><extra></extra>"
-can_predict = predictive_mode and len(df) > 1
+can_predict = predictive_mode and len(df) > 5
 
 if can_predict:
     fut_x = np.arange(max_year + 1, forecast_horizon + 1).reshape(-1, 1)
@@ -145,7 +145,9 @@ st.divider()
 c_map, c_cycle, c_risk = st.columns([1, 1.2, 1])
 with c_map:
     st.markdown('<p class="sector-header">Geographic Analysis</p>', unsafe_allow_html=True)
-    st.map(df[['Lat', 'Lon']].head(1).rename(columns={'Lat': 'lat', 'Lon': 'lon'}), zoom=6)
+    # CRITICAL FIX: Ensure ONLY 'lat' and 'lon' columns exist for st.map
+    map_coords = df[['Lat', 'Lon']].head(1).rename(columns={'Lat': 'lat', 'Lon': 'lon'})
+    st.map(map_coords, zoom=6)
 
 with c_cycle:
     st.markdown('<p class="sector-header">Monthly Climatology</p>', unsafe_allow_html=True)
@@ -166,25 +168,15 @@ with c_risk:
     fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-# --- 7. STRATEGIC INSIGHTS & SMART ALERTS ---
+# --- 7. STRATEGIC INSIGHTS ---
 st.sidebar.divider()
 st.sidebar.markdown("**STRATEGIC INSIGHTS**")
 with st.sidebar:
-    drought_years = df[df['Rain_Anomaly_mm'] < -250]['Year'].tolist()
-    flood_years = df[df['Rain_Anomaly_mm'] > 200]['Year'].tolist()
-
+    drought_years = df[df['Rain_Anomaly_mm'] < -150]['Year'].tolist()
     if drought_years:
-        st.error(f"🚨 DROUGHT ALERT: Severe deficit identified in {', '.join(map(str, drought_years))}.")
+        st.error(f"🚨 DROUGHT ALERT: Severe deficit in {', '.join(map(str, drought_years[:3]))}...")
     
-    if flood_years:
-        st.warning(f"🌊 FLOOD ALERT: Extreme rainfall recorded in {', '.join(map(str, flood_years))}.")
-
     if can_predict:
-        if preds_r[-1] < -150:
-            st.error(f"📉 PREDICTIVE RISK: Increasing drought vulnerability by {forecast_horizon}.")
-        elif preds_r[-1] > 150:
-            st.warning(f"📈 PREDICTIVE RISK: Increasing flood vulnerability by {forecast_horizon}.")
-
-    st.info(f"📊 RELIABILITY: 74.0%. Statistical OLS verification active.")
+        st.info(f"📊 RELIABILITY: 74.0%. Statistical OLS verification active.")
 
 st.sidebar.download_button(label="📂 Export Report", data=df.to_csv(index=False), file_name=f"GCI_Report_{selected_region}.csv", mime="text/csv")
