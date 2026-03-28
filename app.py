@@ -37,7 +37,7 @@ def load_historical_engine():
         df = pd.DataFrame({
             'Year': years, 
             'Temp_Anomaly_C': np.random.normal(0.6, 0.15, len(years)) + (years-1901)*0.004, 
-            'Rain_Anomaly_mm': np.random.normal(0, 50, len(years))
+            'Rain_Anomaly_mm': np.random.normal(0, 80, len(years)) # Increased variance for flood/drought testing
         })
     
     regions = {
@@ -79,9 +79,10 @@ df = df_raw[(df_raw['Region'] == selected_region) &
             (df_raw['Year'] >= selected_years[0]) & 
             (df_raw['Year'] <= selected_years[1])].copy()
 
-# Fix for single year rolling mean crash
-df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=min(15, len(df)), center=True).mean().ffill().bfill()
-df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=min(15, len(df)), center=True).mean().ffill().bfill()
+# Signal smoothing safety check
+window_size = min(15, len(df)) if len(df) > 0 else 1
+df['Temp_Signal'] = df['Temp_Anomaly_C'].rolling(window=window_size, center=True).mean().ffill().bfill()
+df['Rain_Signal'] = df['Rain_Anomaly_mm'].rolling(window=window_size, center=True).mean().ffill().bfill()
 
 # --- 4. EXECUTIVE METRICS ---
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
@@ -95,7 +96,7 @@ render_metric(m2, "Period Mean Rain Δ", f"{avg_r:.1f} mm")
 render_metric(m3, "Reliability Index", "74.0%") 
 render_metric(m4, "Dataset Limit", f"{max_year}")
 
-# --- 5. MAIN VISUALIZATION ---
+# --- 5. MAIN VISUALIZATION (CRASH-PROOF) ---
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 hover_style = "<b>Year: %{x}</b><br>Value: %{y:.2f}<br><extra></extra>"
 can_predict = predictive_mode and len(df) > 1
@@ -124,38 +125,54 @@ if analysis_mode in ["Both", "Temperature Focus"]:
 fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=550)
 st.plotly_chart(fig_main, use_container_width=True)
 
-# --- 6. STRATEGIC INSIGHTS (ADVANCED ALERT LOGIC) ---
+# --- 6. SPATIAL & CLIMATOLOGY ---
+st.divider()
+c_map, c_cycle, c_risk = st.columns([1, 1.2, 1])
+
+with c_map:
+    st.markdown('<p class="sector-header">Geographic Analysis</p>', unsafe_allow_html=True)
+    st.map(df[['Lat', 'Lon']].head(1).rename(columns={'Lat': 'lat', 'Lon': 'lon'}), zoom=6)
+
+with c_cycle:
+    st.markdown('<p class="sector-header">Monthly Climatology</p>', unsafe_allow_html=True)
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    is_north = selected_region in ["Upper East", "Upper West", "Northern", "Savannah", "North East"]
+    clim_r = [5, 12, 28, 60, 100, 160, 215, 270, 225, 90, 20, 5] if is_north else [20, 35, 75, 115, 170, 225, 145, 85, 170, 130, 50, 25]
+    fig_clim = go.Figure(go.Scatter(x=months, y=clim_r, fill='tozeroy', line=dict(color='#00d2ff', width=3)))
+    fig_clim.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
+    st.plotly_chart(fig_clim, use_container_width=True)
+
+with c_risk:
+    st.markdown('<p class="sector-header">CAT Risk Analysis</p>', unsafe_allow_html=True)
+    risk_score = min(int((avg_t / 1.1) * 100), 100) if avg_t > 0 else 10
+    fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=risk_score, number={'suffix': "%"},
+        title={'text': "Exposure Index", 'font': {'size': 14}},
+        gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#00d2ff"}, 
+               'steps': [{'range': [0, 70], 'color': '#2c3e50'}, {'range': [70, 100], 'color': '#e74c3c'}]}))
+    fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
+    st.plotly_chart(fig_gauge, use_container_width=True)
+
+# --- 7. STRATEGIC INSIGHTS & SMART ALERTS ---
 st.sidebar.divider()
 st.sidebar.markdown("**STRATEGIC INSIGHTS**")
 with st.sidebar:
-    # 1. SCAN FOR HISTORICAL DISASTERS
-    extreme_drought_years = df[df['Rain_Anomaly_mm'] < -300]['Year'].tolist()
-    extreme_flood_years = df[df['Rain_Anomaly_mm'] > 250]['Year'].tolist()
+    # Historical disaster scanning
+    drought_years = df[df['Rain_Anomaly_mm'] < -250]['Year'].tolist()
+    flood_years = df[df['Rain_Anomaly_mm'] > 200]['Year'].tolist()
 
-    if extreme_drought_years:
-        st.error(f"🚨 HISTORICAL DROUGHT: Severe water deficit recorded in: {', '.join(map(str, extreme_drought_years))}. Matches 1983-scale failure.")
+    if drought_years:
+        st.error(f"🚨 DROUGHT ALERT: Severe deficit identified in {', '.join(map(str, drought_years))}.")
     
-    if extreme_flood_years:
-        st.warning(f"🌊 HISTORICAL FLOOD: Extreme precipitation events identified in: {', '.join(map(str, extreme_flood_years))}. High CAT risk for infrastructure.")
+    if flood_years:
+        st.warning(f"🌊 FLOOD ALERT: Extreme rainfall recorded in {', '.join(map(str, flood_years))}.")
 
-    # 2. SCAN PREDICTIVE TRENDS
+    # Predictive risk scanning
     if can_predict:
-        last_pred_r = preds_r[-1]
-        if last_pred_r < -200:
-            st.error(f"📉 PREDICTIVE RISK: Linear trend for {selected_region} indicates a trajectory toward permanent aridification by {forecast_horizon}.")
-        elif last_pred_r > 200:
-            st.warning(f"📈 PREDICTIVE RISK: Increasing moisture trend suggests heightened flood frequency by {forecast_horizon}.")
+        if preds_r[-1] < -150:
+            st.error(f"📉 PREDICTIVE RISK: Trend indicates increasing drought risk for {selected_region} by {forecast_horizon}.")
+        elif preds_r[-1] > 150:
+            st.warning(f"📈 PREDICTIVE RISK: Trend suggests high flood vulnerability by {forecast_horizon}.")
 
-    # 3. RELIABILITY
-    risk_score = min(int((avg_t / 1.1) * 100), 100) if avg_t > 0 else 10
     st.info(f"📊 RELIABILITY: 74.0%. Statistical OLS verification active.")
 
-# (Rest of code for maps and gauges remains the same)
-st.divider()
-c_map, c_cycle, c_risk = st.columns([1, 1.2, 1])
-with c_map: st.map(df[['Lat', 'Lon']].head(1).rename(columns={'Lat': 'lat', 'Lon': 'lon'}), zoom=6)
-with c_risk:
-    fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=risk_score, number={'suffix': "%"}, title={'text': "Exposure Index", 'font': {'size': 14}},
-        gauge={'axis': {'range': [None, 100]}, 'bar': {'color': "#00d2ff"}, 'steps': [{'range': [0, 70], 'color': '#2c3e50'}, {'range': [70, 100], 'color': '#e74c3c'}]}))
-    fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
-    st.plotly_chart(fig_gauge, use_container_width=True)
+st.sidebar.download_button(label="📂 Export Report", data=df.to_csv(index=False), file_name=f"GCI_Report_{selected_region}.csv", mime="text/csv")
