@@ -7,17 +7,22 @@ from plotly.subplots import make_subplots
 # --- CONFIG & THEME ---
 st.set_page_config(page_title="Ghana Climate Intel | Pro-Insight", layout="wide")
 
-# CSS to fix visibility: High contrast colors for text & Removal of all boxes
+# CSS Optimized for DARK BACKGROUNDS
 st.markdown("""
     <style>
-    .main { background-color: #ffffff; }
-    /* High contrast for top parameters */
-    .metric-label { color: #000000 !important; font-size: 15px; font-weight: 900; margin-bottom: -5px; }
-    .metric-value { color: #0984e3 !important; font-size: 36px; font-weight: 900; line-height: 1.2; }
+    /* Force the main area to stay dark if your theme doesn't do it automatically */
+    .stApp { background-color: #0e1117; }
     
-    /* Transparent Advisory Section (No White Boxes) */
-    .sector-header { color: #000000 !important; font-size: 18px; font-weight: 900; margin-bottom: 5px; }
-    .sector-text { color: #2d3436 !important; font-size: 15px; font-weight: 500; line-height: 1.4; }
+    /* High contrast for top parameters - White and Electric Blue */
+    .metric-label { color: #ffffff !important; font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: -5px; }
+    .metric-value { color: #00d2ff !important; font-size: 38px; font-weight: 800; line-height: 1.2; }
+    
+    /* Advisory Section - Clean White text, No Boxes */
+    .sector-header { color: #ffffff !important; font-size: 20px; font-weight: 800; margin-top: 15px; margin-bottom: 5px; border-bottom: 1px solid #34495e; padding-bottom: 5px; }
+    .sector-text { color: #bdc3c7 !important; font-size: 16px; font-weight: 400; line-height: 1.5; }
+    
+    /* Fix sidebar visibility for dark mode */
+    section[data-testid="stSidebar"] { background-color: #1a1c23; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -77,7 +82,7 @@ avg_r = df['Rain_Anomaly_mm'].mean()
 st.title(f"🌍 {selected_region} | Climate Risk Intelligence")
 st.markdown("---")
 
-# --- HIGH-VISIBILITY PARAMETERS ---
+# --- HIGH-VISIBILITY PARAMETERS (Dark Mode Optimized) ---
 c1, c2, c3, c4 = st.columns(4)
 
 def clean_metric(col, label, value):
@@ -97,21 +102,18 @@ fig = make_subplots(specs=[[{"secondary_y": True}]])
 
 if target_var in ["Both", "Rainfall"]:
     fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", 
-                         marker_color='#0984e3', opacity=0.3), secondary_y=False)
+                         marker_color='#00d2ff', opacity=0.4), secondary_y=False)
 
 if target_var in ["Both", "Temperature"]:
     fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly", 
-                             line=dict(color='#d63031', width=3)), secondary_y=True)
+                             line=dict(color='#ff4b4b', width=3)), secondary_y=True)
 
-# Forecast Logic
 if enable_forecast:
     last_yr = int(df['Year'].max())
     future_x = np.arange(last_yr + 1, forecast_horizon + 1).reshape(-1, 1)
     hist_x = df['Year'].values.reshape(-1, 1)
-
     model_t = LinearRegression().fit(hist_x, df['Temp_Anomaly_C'])
     preds_t = model_t.predict(future_x)
-    
     model_r = LinearRegression().fit(hist_x, df['Rain_Anomaly_mm'])
     preds_r = model_r.predict(future_x)
 
@@ -120,48 +122,49 @@ if enable_forecast:
             std_t = df['Temp_Anomaly_C'].std() * 0.5
             fig.add_trace(go.Scatter(x=np.concatenate([future_x.flatten(), future_x.flatten()[::-1]]),
                                      y=np.concatenate([preds_t + std_t, (preds_t - std_t)[::-1]]),
-                                     fill='toself', fillcolor='rgba(214, 48, 49, 0.1)', line_color='rgba(0,0,0,0)',
+                                     fill='toself', fillcolor='rgba(255, 75, 75, 0.15)', line_color='rgba(0,0,0,0)',
                                      name="Temp Uncertainty", showlegend=False), secondary_y=True)
         fig.add_trace(go.Scatter(x=future_x.flatten(), y=preds_t, name="Temp Forecast", 
-                                 line=dict(dash='dot', color='#d63031')), secondary_y=True)
+                                 line=dict(dash='dot', color='#ff4b4b')), secondary_y=True)
 
     if target_var in ["Both", "Rainfall"]:
         if show_shading:
             std_r = df['Rain_Anomaly_mm'].std() * 0.8
             fig.add_trace(go.Scatter(x=np.concatenate([future_x.flatten(), future_x.flatten()[::-1]]),
                                      y=np.concatenate([preds_r + std_r, (preds_r - std_r)[::-1]]),
-                                     fill='toself', fillcolor='rgba(9, 132, 227, 0.1)', line_color='rgba(0,0,0,0)',
+                                     fill='toself', fillcolor='rgba(0, 210, 255, 0.15)', line_color='rgba(0,0,0,0)',
                                      name="Rain Uncertainty", showlegend=False), secondary_y=False)
         fig.add_trace(go.Scatter(x=future_x.flatten(), y=preds_r, name="Rain Forecast", 
-                                 line=dict(dash='dot', color='#0984e3')), secondary_y=False)
+                                 line=dict(dash='dot', color='#00d2ff')), secondary_y=False)
 
-fig.update_yaxes(title_text="<b>Rainfall</b> (mm)", secondary_y=False)
-fig.update_yaxes(title_text="<b>Temperature</b> (°C)", secondary_y=True)
-fig.update_layout(template="plotly_white", hovermode="x unified", legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
+fig.update_yaxes(title_text="<b>Rainfall</b> (mm)", secondary_y=False, gridcolor='#2c3e50')
+fig.update_yaxes(title_text="<b>Temperature</b> (°C)", secondary_y=True, gridcolor='#2c3e50')
+fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                  hovermode="x unified", legend=dict(orientation="h", y=1.1, x=1, xanchor="right"))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- CLEAN STRATEGIC INTELLIGENCE (No Boxes) ---
+# --- CLEAN STRATEGIC INTELLIGENCE (No Emojis, Dark Mode Ready) ---
 st.divider()
 st.subheader(f"💡 Strategic Intelligence: {selected_region} ({forecast_horizon})")
 col_f, col_e, col_g = st.columns(3)
 
 with col_f:
-    st.markdown('<p class="sector-header">🧑‍🌾 Agriculture Advisory</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sector-header">Agriculture Advisory</p>', unsafe_allow_html=True)
     if avg_t > 0.5:
-        st.markdown(f'<p class="sector-text">By {forecast_horizon}, thermal stress in {selected_region} may reduce cocoa yields. Suggesting heat-tolerant varieties.</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sector-text">By {forecast_horizon}, thermal stress in {selected_region} may impact crop viability. Shift toward heat-tolerant varieties is advised.</p>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<p class="sector-text">Conditions in {selected_region} are stable for current crop cycles. Maintain standard irrigation.</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sector-text">Climatic stability in {selected_region} supports current agricultural cycles. Continue with standardized irrigation protocols.</p>', unsafe_allow_html=True)
 
 with col_e:
-    st.markdown('<p class="sector-header">☀️ Energy & Infrastructure</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sector-header">Energy & Infrastructure</p>', unsafe_allow_html=True)
     if avg_r < -10:
-        st.markdown(f'<p class="sector-text">Decreasing rainfall trends suggest a high risk for Hydro-electric reliability. Transition to Solar is recommended.</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sector-text">Rainfall deficit trends suggest potential hydro-generation volatility. Diversification into solar or wind energy is recommended for long-term security.</p>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<p class="sector-text">Rainfall patterns support stable hydroelectric output. Solar PV efficiency remains high.</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sector-text">Current precipitation metrics support consistent hydroelectric output. Infrastructure resilience is rated as stable.</p>', unsafe_allow_html=True)
 
 with col_g:
-    st.markdown('<p class="sector-header">🏛️ Policy & Planning</p>', unsafe_allow_html=True)
-    st.markdown(f'<p class="sector-text">CAT Risk is <b>{("High" if avg_t > 0.6 else "Moderate")}</b>. Urban planning in {selected_region} should prioritize heat-mitigation infrastructure.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sector-header">Policy & Planning</p>', unsafe_allow_html=True)
+    st.markdown(f'<p class="sector-text">The projected CAT Risk Level is <b>{("High" if avg_t > 0.6 else "Moderate")}</b>. Future urban development should incorporate climate-adaptive drainage and cooling systems.</p>', unsafe_allow_html=True)
 
 # --- MAP & REPORT ---
 st.divider()
@@ -175,7 +178,7 @@ with c_map:
 with c_brief:
     st.subheader("📝 Analyst Briefing")
     if avg_t > 0.5:
-        st.error(f"Region {selected_region} is exhibiting thermal stress. Immediate adaptation measures required.")
+        st.error(f"Region {selected_region} is exhibiting thermal acceleration. Climate adaptation protocols recommended.")
     else:
-        st.success(f"Region {selected_region} metrics are stable.")
-    st.sidebar.download_button("📂 Download Intelligence Report", df.to_csv(index=False), f"Pro_Report_{selected_region}.csv")
+        st.success(f"Region {selected_region} parameters remain within historical stability margins.")
+    st.sidebar.download_button("📂 Generate Intelligence Report", df.to_csv(index=False), f"Climate_Report_{selected_region}.csv")
