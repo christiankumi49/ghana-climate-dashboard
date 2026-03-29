@@ -40,7 +40,8 @@ def create_pdf_report(region, avg_t, avg_r, year_range, flood_status):
     pdf.ln(10)
     pdf.cell(200, 10, txt=f"Analysis Period: {year_range[0]} - {year_range[1]}", ln=True)
     pdf.cell(200, 10, txt=f"Mean Thermal Variance: +{avg_t:.2f} C", ln=True)
-    pdf.cell(200, 10, txt=f"Avg. Precipitation Δ: {avg_r:.1f} mm", ln=True)
+    # Replaced Delta (Δ) with "Delta" to prevent encoding errors
+    pdf.cell(200, 10, txt=f"Avg. Precipitation Delta: {avg_r:.1f} mm", ln=True)
     
     pdf.ln(10)
     pdf.set_font("Arial", 'B', 12)
@@ -49,7 +50,8 @@ def create_pdf_report(region, avg_t, avg_r, year_range, flood_status):
     status_text = "FLOOD RISK DETECTED" if flood_status else "Stable moisture levels observed."
     pdf.multi_cell(0, 10, txt=f"Diagnostic Result: {status_text}. This reflects historical and projected anomalies relative to the Ghana baseline.")
     
-    return pdf.output(dest='S').encode('latin-1')
+    # Use latin-1 and ignore errors to prevent crashes with future special characters
+    return pdf.output(dest='S').encode('latin-1', 'ignore')
 
 # --- 3. DATA ENGINE ---
 @st.cache_data
@@ -131,6 +133,7 @@ fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 hover_style = "<b>Year: %{x}</b><br>Value: %{y:.2f}<br><extra></extra>"
 can_predict = predictive_mode and len(df) > 5
 
+preds_r = np.array([0]) # Placeholder
 if can_predict:
     fut_x = np.arange(max_year + 1, forecast_horizon + 1).reshape(-1, 1)
     hist_x = df['Year'].values.reshape(-1, 1)
@@ -160,9 +163,7 @@ st.divider()
 c_map, c_cycle, c_risk = st.columns([1, 1.2, 1])
 with c_map:
     st.markdown('<p class="sector-header">Flood Risk Map (Dynamic)</p>', unsafe_allow_html=True)
-    # Highlight districts with highest hydrological sensitivity
     flood_prone_districts = df_raw.groupby('Region').last().reset_index()
-    # Add intensity color: High for Greater Accra, Volta, and Northern regions
     flood_prone_districts['color'] = '#00d2ff'
     st.map(flood_prone_districts, zoom=5, color='color', size=20000)
 
@@ -185,16 +186,14 @@ with c_risk:
     fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=0, b=0))
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-# --- 8. STRATEGIC INSIGHTS: FLOOD & DROUGHT ENGINES ---
+# --- 8. STRATEGIC INSIGHTS ---
 st.sidebar.divider()
 st.sidebar.markdown("**STRATEGIC INSIGHTS**")
 with st.sidebar:
-    # PREDICTION LOGIC
     is_flood = False
     if can_predict:
-        # Check if the projection (Future) or historical data (Past) breaks the 140mm barrier
-        max_rain = max(df['Rain_Anomaly_mm'].max(), preds_r.max() if 'preds_r' in locals() else 0)
-        min_rain = min(df['Rain_Anomaly_mm'].min(), preds_r.min() if 'preds_r' in locals() else 0)
+        max_rain = max(df['Rain_Anomaly_mm'].max(), preds_r.max())
+        min_rain = min(df['Rain_Anomaly_mm'].min(), preds_r.min())
         
         if max_rain > 140:
             st.warning(f"🌊 FLOOD ENGINE: Positive anomaly detected (+{max_rain:.1f}mm). High risk of flash floods.")
@@ -205,5 +204,14 @@ with st.sidebar:
 
     # DOWNLOADS
     st.download_button(label="📂 Export CSV Data", data=df.to_csv(index=False), file_name=f"GCI_Data_{selected_region}.csv", mime="text/csv")
-    pdf_report = create_pdf_report(selected_region, avg_t, avg_r, selected_years, is_flood)
-    st.download_button(label="📄 Download PDF Summary", data=pdf_report, file_name=f"GCI_Report_{selected_region}.pdf", mime="application/pdf")
+    
+    # Generate the binary PDF data
+    pdf_data = create_pdf_report(selected_region, avg_t, avg_r, selected_years, is_flood)
+    
+    # Download Button
+    st.download_button(
+        label="📄 Download PDF Summary",
+        data=pdf_data,
+        file_name=f"GCI_Report_{selected_region}.pdf",
+        mime="application/pdf"
+    )
