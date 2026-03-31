@@ -12,6 +12,8 @@ import os
 import tempfile
 from datetime import datetime
 import requests
+# NEW: Industry-standard time-series modeling
+from statsmodels.tsa.ar_model import AutoReg
 
 # --- 1. PRO-SUITE UI ARCHITECTURE & SESSION STATE ---
 st.set_page_config(page_title="GCI Elite | Climate Intel", layout="wide")
@@ -65,6 +67,15 @@ def fetch_nasa_live(lat, lon):
     except:
         return None, None
 
+# NEW: Data Validation Layer
+def validate_pipeline(df):
+    required = {'Year', 'Temp_Anomaly_C', 'Rain_Anomaly_mm'}
+    missing = required - set(df.columns)
+    if missing:
+        st.sidebar.error(f"⚠️ Pipeline Error: Missing {missing}")
+        return False
+    return True
+
 def detect_anomalies(series):
     z_scores = (series - series.mean()) / (series.std() + 1e-6)
     return series[np.abs(z_scores) > 2.0]
@@ -83,25 +94,55 @@ def generate_ai_diagnostic(region, avg_t, t_slope, risk, t_anoms, r_anoms, r2, m
     The engine identified **{len(t_anoms)} thermal** and **{len(r_anoms)} rainfall** extremes. Risk level: **{risk}**.
     """
 
-# --- 3. REPORTING ENGINE ---
+# --- 3. UPDATED: NARRATIVE REPORTING ENGINE ---
 def create_pdf_report(region, avg_t, avg_r, year_range, risk, r2, diag, fig_static):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Helvetica", 'B', 18)
-    pdf.cell(200, 15, txt=f"GCI Elite Intelligence: {region}", ln=True, align='C')
+    
+    # Header
+    pdf.set_font("Helvetica", 'B', 20)
+    pdf.set_text_color(0, 210, 255)
+    pdf.cell(200, 20, txt="GCI ELITE: CLIMATE INTELLIGENCE REPORT", ln=True, align='C')
+    
+    # Executive Summary
+    pdf.set_font("Helvetica", 'B', 14)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(200, 10, txt=f"Executive Summary: {region}", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    pdf.multi_cell(0, 7, txt=f"This document provides a high-fidelity risk assessment for the {region} sector based on longitudinal data ({year_range[0]}-{year_range[1]}). The platform has analyzed thermal anomalies and precipitation variance to determine strategic vulnerability.")
+
+    # Visualization
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-        fig_static.savefig(tmp.name, format='png', bbox_inches='tight', dpi=100)
+        fig_static.savefig(tmp.name, format='png', bbox_inches='tight', dpi=150)
         temp_path = tmp.name
-    pdf.image(temp_path, x=10, y=55, w=190)
+    pdf.image(temp_path, x=10, y=70, w=190)
     if os.path.exists(temp_path):
         os.remove(temp_path)
+
+    # Risk Metrics
+    pdf.set_y(175)
+    pdf.set_font("Helvetica", 'B', 12)
+    pdf.cell(0, 10, txt="Key Intelligence Metrics:", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(0, 7, txt=f"- Mean Thermal Variance: +{avg_t:.2f} C", ln=True)
+    pdf.cell(0, 7, txt=f"- Model Confidence (R2): {r2:.2f}", ln=True)
+    pdf.cell(0, 7, txt=f"- Regional Risk Status: {risk}", ln=True)
+    
+    # Narrative Diagnostic
+    pdf.ln(5)
+    pdf.set_font("Helvetica", 'B', 12)
+    pdf.cell(0, 10, txt="Expert Diagnostic Narrative:", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    pdf.multi_cell(0, 6, txt=diag.replace("**", "").replace("_", ""))
+    
     return pdf.output(dest='S').encode('latin-1', 'ignore')
 
 # --- 4. DATA ENGINE ---
 @st.cache_data
 def load_historical_engine(uploaded_file=None):
     if uploaded_file is not None: 
-        return pd.read_csv(uploaded_file)
+        df = pd.read_csv(uploaded_file)
+        if validate_pipeline(df): return df
     years = np.arange(1901, 2021) 
     df = pd.DataFrame({'Year': years, 'Temp_Anomaly_C': np.random.normal(0.4, 0.1, len(years)) + (years-1901)*0.006, 'Rain_Anomaly_mm': np.random.normal(0, 70, len(years))})
     regions = {
@@ -124,7 +165,9 @@ selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw
 if selected_region not in st.session_state.history:
     st.session_state.history.append(selected_region)
 
-model_choice = st.sidebar.radio("Analysis Engine", ["Linear Regression", "Ridge (L2)", "Random Forest"])
+# UPDATED: True Time-Series Model in selection
+model_choice = st.sidebar.radio("Analysis Engine", ["ARIMA (Auto-Regressive)", "Ridge (L2)", "Random Forest"])
+
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
 lat_c, lon_c = df_reg['lat'].iloc[0], df_reg['lon'].iloc[0]
 live_engine = st.sidebar.toggle("Live NASA Satellite Feed", value=True)
@@ -149,11 +192,18 @@ r_anoms = detect_anomalies(df['Rain_Anomaly_mm'])
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 X, y = df['Year'].values.reshape(-1, 1), df['T_Signal'].values
 
-if model_choice == "Linear Regression": model = LinearRegression().fit(X, y)
-elif model_choice == "Ridge (L2)": model = Ridge(alpha=1.0).fit(X, y)
-else: model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y)
+# NEW: True Time-Series Logic
+if model_choice == "ARIMA (Auto-Regressive)":
+    # Using 1st order Lag for climate persistence
+    ts_model = AutoReg(y, lags=1).fit()
+    y_pred = ts_model.predict(0, len(y)-1)
+elif model_choice == "Ridge (L2)": 
+    model = Ridge(alpha=1.0).fit(X, y)
+    y_pred = model.predict(X)
+else: 
+    model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y)
+    y_pred = model.predict(X)
 
-y_pred = model.predict(X)
 r2_val = r2_score(y, y_pred)
 t_slope = (y_pred[-1] - y_pred[0]) / (X[-1] - X[0])[0] if model_choice != "Random Forest" else 0.0075
 lower_b, upper_b = calculate_bounds(y, y_pred)
@@ -179,8 +229,14 @@ fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp (Obser
 fig.add_trace(go.Scatter(x=df['Year'], y=y_pred, name="Trend Line", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
 
 if predictive_mode:
-    fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
-    fig.add_trace(go.Scatter(x=fut_x.flatten(), y=model.predict(fut_x), name="Projection", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
+    if model_choice == "ARIMA (Auto-Regressive)":
+        h_len = forecast_horizon - int(df['Year'].max())
+        fut_y = ts_model.predict(len(y), len(y) + h_len - 1)
+        fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1)
+    else:
+        fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
+        fut_y = model.predict(fut_x)
+    fig.add_trace(go.Scatter(x=fut_x.flatten(), y=fut_y, name="Projection", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
 
 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500, xaxis_title="Timeline (Years)", yaxis_title="Rainfall Anomaly (mm)", yaxis2_title="Temperature Anomaly (°C)")
 st.plotly_chart(fig, use_container_width=True)
