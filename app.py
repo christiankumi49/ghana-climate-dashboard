@@ -12,10 +12,9 @@ import os
 import tempfile
 from datetime import datetime
 import requests
-# NEW: Industry-standard time-series modeling
 from statsmodels.tsa.ar_model import AutoReg
 
-# --- 1. PRO-SUITE UI ARCHITECTURE & SESSION STATE ---
+# --- 1. PRO-SUITE UI ARCHITECTURE ---
 st.set_page_config(page_title="GCI Elite | Climate Intel", layout="wide")
 
 if 'history' not in st.session_state:
@@ -50,7 +49,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ENGINES ---
+# --- 2. ENGINES & UTILITIES ---
 @st.cache_data(ttl=3600)
 def fetch_nasa_live(lat, lon):
     try:
@@ -67,22 +66,9 @@ def fetch_nasa_live(lat, lon):
     except:
         return None, None
 
-def validate_pipeline(df):
-    required = {'Year', 'Temp_Anomaly_C', 'Rain_Anomaly_mm'}
-    missing = required - set(df.columns)
-    if missing:
-        st.sidebar.error(f"⚠️ Pipeline Error: Missing {missing}")
-        return False
-    return True
-
 def detect_anomalies(series):
     z_scores = (series - series.mean()) / (series.std() + 1e-6)
     return series[np.abs(z_scores) > 2.0]
-
-def calculate_bounds(y_true, y_pred):
-    residuals = y_true - y_pred
-    stdev = np.std(residuals)
-    return y_pred - (1.96 * stdev), y_pred + (1.96 * stdev)
 
 def generate_ai_diagnostic(region, avg_t, t_slope, risk, t_anoms, r_anoms, r2, m_name):
     warming_speed = "Accelerated" if t_slope > 0.007 else "Steady"
@@ -90,27 +76,30 @@ def generate_ai_diagnostic(region, avg_t, t_slope, risk, t_anoms, r_anoms, r2, m
     return f"""
     **SYSTEM DIAGNOSTIC:** The {region} sector is experiencing **{warming_speed} thermal variance** (+{t_slope:.4f}°C/yr). 
     Model: **{m_name}** | Reliability: **{reliability}** ($R^2$: {r2:.2f}). 
-    The engine identified **{len(t_anoms)} thermal** and **{len(r_anoms)} rainfall** extremes. Risk level: **{risk}**.
+    Identified **{len(t_anoms)} thermal** and **{len(r_anoms)} rainfall** extremes. Risk level: **{risk}**.
     """
 
-# --- 3. NARRATIVE REPORTING ENGINE ---
+# --- 3. ENHANCED REPORTING ENGINE ---
 def create_pdf_report(region, avg_t, avg_r, year_range, risk, r2, diag, fig_static):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", 'B', 20)
     pdf.set_text_color(0, 210, 255)
     pdf.cell(200, 20, txt="GCI ELITE: CLIMATE INTELLIGENCE REPORT", ln=True, align='C')
+    
     pdf.set_font("Helvetica", 'B', 14)
     pdf.set_text_color(0, 0, 0)
     pdf.cell(200, 10, txt=f"Executive Summary: {region}", ln=True)
     pdf.set_font("Helvetica", size=10)
-    pdf.multi_cell(0, 7, txt=f"Risk assessment for {region} ({year_range[0]}-{year_range[1]}). Platform analyzed thermal anomalies.")
+    pdf.multi_cell(0, 7, txt=f"Analysis for {region} ({year_range[0]}-{year_range[1]}). Data driven thermal/precip risk assessment.")
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         fig_static.savefig(tmp.name, format='png', bbox_inches='tight', dpi=150)
         temp_path = tmp.name
     pdf.image(temp_path, x=10, y=70, w=190)
     if os.path.exists(temp_path):
         os.remove(temp_path)
+
     pdf.set_y(175)
     pdf.set_font("Helvetica", 'B', 12)
     pdf.cell(0, 10, txt="Key Intelligence Metrics:", ln=True)
@@ -126,8 +115,7 @@ def create_pdf_report(region, avg_t, avg_r, year_range, risk, r2, diag, fig_stat
 @st.cache_data
 def load_historical_engine(uploaded_file=None):
     if uploaded_file is not None: 
-        df = pd.read_csv(uploaded_file)
-        if validate_pipeline(df): return df
+        return pd.read_csv(uploaded_file)
     years = np.arange(1901, 2021) 
     df = pd.DataFrame({'Year': years, 'Temp_Anomaly_C': np.random.normal(0.4, 0.1, len(years)) + (years-1901)*0.006, 'Rain_Anomaly_mm': np.random.normal(0, 70, len(years))})
     regions = {
@@ -167,34 +155,36 @@ selected_years = st.sidebar.slider("Historical Viewport", 1901, 2026, (1980, 202
 df = df_reg[df_reg['Year'].between(selected_years[0], selected_years[1])].copy()
 predictive_mode = st.sidebar.toggle("Statistical Projections", value=True)
 forecast_horizon = st.sidebar.slider("Horizon Year", 2021, 2060, 2050) if predictive_mode else 2020
-df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=5, center=True).mean().ffill().bfill()
+df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=3, center=True).mean().ffill().bfill()
 
-# --- 6. METRICS & ANALYSIS (FIXED FOR NaN) ---
+# --- 6. METRICS & ANALYSIS (BULLETPROOF) ---
 t_anoms = detect_anomalies(df['Temp_Anomaly_C'])
 r_anoms = detect_anomalies(df['Rain_Anomaly_mm'])
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 
-# CLEANING STEP: Remove NaNs from signal before modeling
 df_modeling = df[['Year', 'T_Signal']].dropna()
 X_mod = df_modeling['Year'].values.reshape(-1, 1)
 y_mod = df_modeling['T_Signal'].values
 
-if len(y_mod) < 10:
-    st.warning("Insufficient data in viewport for processing. Please expand the 'Historical Viewport'.")
+try:
+    if model_choice == "ARIMA (Auto-Regressive)":
+        ts_model = AutoReg(y_mod, lags=1).fit()
+        y_pred = ts_model.predict(0, len(y_mod)-1)
+    elif model_choice == "Ridge (L2)": 
+        model = Ridge(alpha=1.0).fit(X_mod, y_mod)
+        y_pred = model.predict(X_mod)
+    else: 
+        model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_mod, y_mod)
+        y_pred = model.predict(X_mod)
+
+    # SAFETY CHECK: Filter out non-finite numbers before R2
+    finite_mask = np.isfinite(y_mod) & np.isfinite(y_pred)
+    r2_val = r2_score(y_mod[finite_mask], y_pred[finite_mask]) if np.any(finite_mask) else 0.0
+except:
+    st.error("Engine failure. Please adjust the Viewport slider.")
     st.stop()
 
-if model_choice == "ARIMA (Auto-Regressive)":
-    ts_model = AutoReg(y_mod, lags=1).fit()
-    y_pred = ts_model.predict(0, len(y_mod)-1)
-elif model_choice == "Ridge (L2)": 
-    model = Ridge(alpha=1.0).fit(X_mod, y_mod)
-    y_pred = model.predict(X_mod)
-else: 
-    model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_mod, y_mod)
-    y_pred = model.predict(X_mod)
-
-r2_val = r2_score(y_mod, y_pred)
-t_slope = (y_pred[-1] - y_pred[0]) / (X_mod[-1] - X_mod[0])[0] if model_choice != "Random Forest" else 0.0075
+t_slope = (y_pred[-1] - y_pred[0]) / (X_mod[-1] - X_mod[0])[0] if len(y_pred) > 1 else 0.0075
 
 risk_level = "LOW"
 if len(t_anoms) > 5 or avg_r < -25: risk_level = "CRITICAL"
@@ -218,16 +208,15 @@ fig.add_trace(go.Scatter(x=df_modeling['Year'], y=y_pred, name="Trend Line", lin
 
 if predictive_mode:
     last_yr = int(df_modeling['Year'].max())
-    if model_choice == "ARIMA (Auto-Regressive)":
-        h_len = forecast_horizon - last_yr
-        if h_len > 0:
+    h_len = forecast_horizon - last_yr
+    if h_len > 0:
+        if model_choice == "ARIMA (Auto-Regressive)":
             fut_y = ts_model.predict(len(y_mod), len(y_mod) + h_len - 1)
             fut_x = np.arange(last_yr + 1, forecast_horizon + 1)
-            fig.add_trace(go.Scatter(x=fut_x, y=fut_y, name="Projection", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
-    else:
-        fut_x = np.arange(last_yr + 1, forecast_horizon + 1).reshape(-1, 1)
-        if len(fut_x) > 0:
+        else:
+            fut_x = np.arange(last_yr + 1, forecast_horizon + 1).reshape(-1, 1)
             fut_y = model.predict(fut_x)
+        if np.all(np.isfinite(fut_y)):
             fig.add_trace(go.Scatter(x=fut_x.flatten(), y=fut_y, name="Projection", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
 
 fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500)
@@ -236,7 +225,7 @@ st.plotly_chart(fig, use_container_width=True)
 # --- 8. MATPLOTLIB FOR PDF ---
 plt.style.use('dark_background')
 fig_static, ax = plt.subplots(figsize=(10, 5))
-ax.plot(df_modeling['Year'], y_pred, color='#00d2ff', label="Trend")
+ax.plot(df_modeling['Year'], y_pred, color='#00d2ff')
 ax.set_title(f"Climatic Variance: {selected_region}")
 plt.close(fig_static)
 
