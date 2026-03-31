@@ -41,7 +41,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ENGINES (API, ANOMALY, AI) ---
+# --- 2. ENGINES ---
 def fetch_nasa_live(lat, lon):
     try:
         curr_yr = datetime.now().year
@@ -60,12 +60,11 @@ def detect_anomalies(series):
     z_scores = (series - series.mean()) / (series.std() + 1e-6)
     return series[np.abs(z_scores) > 2.0]
 
-def generate_ai_diagnostic(region, avg_t, t_slope, risk, anoms):
+def generate_ai_diagnostic(region, avg_t, t_slope, risk, t_anoms, r_anoms):
     warming_speed = "Accelerated" if t_slope > 0.007 else "Steady"
     return f"""
     **SYSTEM DIAGNOSTIC:** The {region} sector is experiencing **{warming_speed} thermal variance** (+{t_slope:.4f}°C/yr). 
-    The Risk Engine has flagged a **{risk}** rating. Statistical analysis identified **{len(anoms)}** extreme thermal 
-    anomalies in the current viewport. Current moisture flux suggests a need for CAT modeling adjustments.
+    The Risk Engine has flagged a **{risk}** rating. Analysis identified **{len(t_anoms)}** thermal and **{len(r_anoms)}** precipitation anomalies.
     """
 
 # --- 3. REPORTING ENGINE ---
@@ -104,14 +103,12 @@ st.sidebar.title("💎 COMMAND CENTER")
 df_raw = load_historical_engine(st.sidebar.file_uploader("⚡ Upload CSV", type=["csv"]))
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
 
-# Benchmarking Feature
 compare_on = st.sidebar.toggle("Enable Benchmarking")
 compare_region = st.sidebar.selectbox("Benchmark", [r for r in sorted(df_raw['Region'].unique()) if r != selected_region]) if compare_on else None
 
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
 lat_c, lon_c = df_reg['lat'].iloc[0], df_reg['lon'].iloc[0]
 
-# Live API Integration
 live_engine = st.sidebar.toggle("Live NASA Satellite Feed", value=True)
 status_tag = "OFFLINE"
 if live_engine:
@@ -131,21 +128,28 @@ forecast_horizon = st.sidebar.slider("Horizon Year", 2021, 2060, 2050) if predic
 df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=10, center=True).mean().ffill().bfill()
 
 # --- 6. METRICS & RISK ---
+# BUG FIX 2: Detect both Temp and Rain anomalies
+t_anoms = detect_anomalies(df['Temp_Anomaly_C'])
+r_anoms = detect_anomalies(df['Rain_Anomaly_mm'])
+
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 X_train = df['Year'].values.reshape(-1, 1)
 model_t = LinearRegression().fit(X_train, df['T_Signal'])
 t_slope = model_t.coef_[0]
-gdd_est = int((avg_t + 26.0 - 10) * 365) # Core GDD Calculation
+gdd_est = int((avg_t + 26.0 - 10) * 365)
 
+# BUG FIX 3: Slightly upgraded risk logic
 risk_level = "LOW"
-if avg_t > 1.2 or t_slope > 0.009: risk_level = "CRITICAL"
-elif avg_t > 0.8 or avg_r < -15: risk_level = "HIGH"
-elif avg_t > 0.4: risk_level = "MEDIUM"
+if len(t_anoms) > 5 or avg_r < -25:
+    risk_level = "CRITICAL"
+elif avg_t > 0.8 or avg_r < -15:
+    risk_level = "HIGH"
+elif avg_t > 0.4:
+    risk_level = "MEDIUM"
 
 # UI Header & AI Box
 st.markdown(f'<p class="update-pulse">● ENGINE {status_tag} | {selected_region.upper()}</p>', unsafe_allow_html=True)
-anoms = detect_anomalies(df['Temp_Anomaly_C'])
-st.markdown(f'<div class="ai-box">{generate_ai_diagnostic(selected_region, avg_t, t_slope, risk_level, anoms)}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="ai-box">{generate_ai_diagnostic(selected_region, avg_t, t_slope, risk_level, t_anoms, r_anoms)}</div>', unsafe_allow_html=True)
 
 m1, m2, m3, m4 = st.columns(4)
 def render_metric(col, lab, val, is_danger=False):
@@ -164,11 +168,13 @@ fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly",
 fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
 fig.add_trace(go.Scatter(x=df['Year'], y=df['T_Signal'], name="Decadal Trend", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
 
-# Anomaly Highlights
-if not anoms.empty:
-    fig.add_trace(go.Scatter(x=anoms.index + df['Year'].min(), y=anoms.values, mode='markers', name='Extreme Event', marker=dict(color='#00ffcc', size=10, symbol='diamond')), secondary_y=True)
+# BUG FIX 1: Anomaly Plotting with correct indexing
+if not t_anoms.empty:
+    fig.add_trace(go.Scatter(x=df.loc[t_anoms.index, 'Year'], y=t_anoms.values, mode='markers', name='Thermal Extreme', marker=dict(color='#00ffcc', size=10, symbol='diamond')), secondary_y=True)
+if not r_anoms.empty:
+    fig.add_trace(go.Scatter(x=df.loc[r_anoms.index, 'Year'], y=r_anoms.values, mode='markers', name='Rain Extreme', marker=dict(color='#00d2ff', size=10, symbol='circle')), secondary_y=False)
 
-# Benchmarking Comparison Line
+# Benchmarking
 if compare_on and compare_region:
     df_comp = df_raw[df_raw['Region'] == compare_region].copy()
     df_comp['T_Signal'] = df_comp['Temp_Anomaly_C'].rolling(window=10).mean().ffill().bfill()
