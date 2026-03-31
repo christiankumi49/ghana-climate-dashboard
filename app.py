@@ -27,6 +27,17 @@ st.markdown("""
     .sector-header { color: #ffffff; font-size: 20px; font-weight: 700; border-bottom: 2px solid #1f2937; padding-bottom: 10px; margin-bottom: 20px; }
     .update-pulse { color: #00ffcc; font-size: 13px; font-family: 'Courier New', monospace; font-weight: bold; }
     section[data-testid="stSidebar"] { background-color: #111827; border-right: 1px solid #1f2937; }
+    
+    /* NEW UPGRADE: INSIGHT CHIPS */
+    .insight-chip {
+        padding: 10px 15px;
+        border-radius: 8px;
+        background: rgba(0, 210, 255, 0.05);
+        border-left: 4px solid #00d2ff;
+        margin-bottom: 10px;
+        font-size: 14px;
+        color: #e2e8f0;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -85,6 +96,12 @@ uploaded_file = st.sidebar.file_uploader("⚡ Upload Custom CSV", type=["csv"])
 df_raw = load_historical_engine(uploaded_file)
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
 
+# UPGRADE: Multi-Region Comparison Selection
+compare_on = st.sidebar.toggle("Enable Benchmarking")
+compare_region = None
+if compare_on:
+    compare_region = st.sidebar.selectbox("Comparison Benchmark", options=[r for r in sorted(df_raw['Region'].unique()) if r != selected_region])
+
 # Filter by region first to get Map Anchor
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
 reg_coords = pd.DataFrame({'lat': [df_reg['lat'].iloc[0]], 'lon': [df_reg['lon'].iloc[0]]})
@@ -137,6 +154,12 @@ if analysis_mode in ["Both", "Temperature"]:
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Raw", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['T_Signal'], name="Decadal Trend", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
     
+    # UPGRADE: Benchmarking Overlay (Multi-region)
+    if compare_on and compare_region:
+        df_comp = df_raw[(df_raw['Region'] == compare_region) & (df_raw['Year'].between(selected_years[0], selected_years[1]))]
+        df_comp['T_Signal'] = df_comp['Temp_Anomaly_C'].rolling(window=10).mean().ffill().bfill()
+        fig_main.add_trace(go.Scatter(x=df_comp['Year'], y=df_comp['T_Signal'], name=f"{compare_region} Trend", line=dict(color='rgba(255, 255, 255, 0.4)', dash='dot')), secondary_y=True)
+
     if predictive_mode:
         fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
         # ML Upgrade: Polynomial
@@ -154,24 +177,33 @@ fig_main.update_yaxes(title_text="Temperature (°C)", range=[-0.2, temp_limit], 
 fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=480, hovermode="x unified")
 st.plotly_chart(fig_main, use_container_width=True)
 
-# --- 7. INTELLIGENCE INSIGHTS ---
-st.markdown('<p class="sector-header">🧠 Intelligence Insights</p>', unsafe_allow_html=True)
+# --- 7. INTELLIGENCE INSIGHTS (UPGRADED WITH REAL-WORLD IMPACTS) ---
+st.markdown('<p class="sector-header">🧠 Intelligence & Real-World Insights</p>', unsafe_allow_html=True)
 i1, i2 = st.columns(2)
 with i1:
-    if t_slope > 0.007: st.warning(f"🔥 **Rapid Warming:** {selected_region} shows high thermal acceleration.")
-    elif t_slope > 0.003: st.info("⚠️ **Moderate Warming:** Upward decadal trend detected.")
-    else: st.success("✅ **Thermal Stability:** Minimal variance in this window.")
+    if t_slope > 0.007: 
+        st.warning(f"🔥 **Rapid Warming:** {selected_region} shows high thermal acceleration.")
+        st.markdown('<div class="insight-chip"><b>Impact:</b> High evaporation risk in cocoa belts. Heat-stress potential for livestock.</div>', unsafe_allow_html=True)
+    elif t_slope > 0.003: 
+        st.info("⚠️ **Moderate Warming:** Upward decadal trend detected.")
+        st.markdown('<div class="insight-chip"><b>Impact:</b> Shifting planting seasons; monitoring of soil moisture recommended.</div>', unsafe_allow_html=True)
+    else: 
+        st.success("✅ **Thermal Stability:** Minimal variance in this window.")
 with i2:
-    if avg_r < -15: st.error("🚨 **Drought Signal:** Persistent negative rainfall anomaly.")
-    elif avg_r > 15: st.success("🌧️ **Moisture Surplus:** Rainfall is above historical baseline.")
-    else: st.info("📊 **Balanced Hydrology:** Moisture within normal variance.")
+    if avg_r < -15: 
+        st.error("🚨 **Drought Signal:** Persistent negative rainfall anomaly.")
+        st.markdown('<div class="insight-chip"><b>Impact:</b> Significant threat to rain-fed agriculture and hydroelectric output.</div>', unsafe_allow_html=True)
+    elif avg_r > 15: 
+        st.success("🌧️ **Moisture Surplus:** Rainfall is above historical baseline.")
+        st.markdown('<div class="insight-chip"><b>Impact:</b> Increased runoff; potential drainage stress in urban areas.</div>', unsafe_allow_html=True)
+    else: 
+        st.info("📊 **Balanced Hydrology:** Moisture within normal variance.")
 
 # --- 8. GEOSPATIAL & RISK (FIXED ZOOM) ---
 st.divider()
 c1, c2, c3 = st.columns([1, 1, 1])
 with c1:
     st.markdown('<p class="sector-header">Regional Anchor</p>', unsafe_allow_html=True)
-    # This now forces the map to jump to the selected region
     st.map(reg_coords, zoom=7)
 with c2:
     st.markdown('<p class="sector-header">Monthly Climatology</p>', unsafe_allow_html=True)
@@ -181,7 +213,6 @@ with c2:
     st.plotly_chart(go.Figure(go.Scatter(x=months, y=clim_r, fill='tozeroy', line=dict(color='#00d2ff'))).update_layout(template="plotly_dark", height=220, margin=dict(t=0, b=0, l=0, r=0)), use_container_width=True)
 with c3:
     st.markdown('<p class="sector-header">Exposure Index</p>', unsafe_allow_html=True)
-    # Fixed formula for 0-100 gauge
     exposure = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
     fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=exposure, number={'suffix': "%"},
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#00d2ff"},
