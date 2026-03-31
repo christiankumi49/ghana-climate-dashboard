@@ -64,7 +64,8 @@ def load_historical_engine(uploaded_file=None):
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
     else:
-        years = np.arange(1901, 2026)
+        # FIX: Adjusted to 2020 to align with your CRU dataset
+        years = np.arange(1901, 2021) 
         df = pd.DataFrame({
             'Year': years, 
             'Temp_Anomaly_C': np.random.normal(0.4, 0.1, len(years)) + (years-1901)*0.006, 
@@ -106,12 +107,14 @@ if compare_on:
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
 reg_coords = pd.DataFrame({'lat': [df_reg['lat'].iloc[0]], 'lon': [df_reg['lon'].iloc[0]]})
 
-selected_years = st.sidebar.slider("Historical Viewport", int(df_reg['Year'].min()), int(df_reg['Year'].max()), (1980, 2025))
+# FIX: Viewport now strictly respects the 2020 limit
+selected_years = st.sidebar.slider("Historical Viewport", int(df_reg['Year'].min()), int(df_reg['Year'].max()), (1980, 2020))
 df = df_reg[df_reg['Year'].between(selected_years[0], selected_years[1])].copy()
 analysis_mode = st.sidebar.radio("Primary Stream", ["Both", "Temperature", "Precipitation"])
 
 predictive_mode = st.sidebar.toggle("Statistical Projections", value=True)
-forecast_horizon = st.sidebar.slider("Horizon Year", 2026, 2060, 2050) if predictive_mode else 2025
+# FIX: Horizon starts from 2021
+forecast_horizon = st.sidebar.slider("Horizon Year", 2021, 2060, 2050) if predictive_mode else 2020
 
 # Signal Processing
 df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=10, center=True).mean().ffill().bfill()
@@ -143,15 +146,18 @@ render_metric(m4, "Latest Record", f"{int(df['Year'].max())}")
 st.markdown('<p class="sector-header">Standardized Hydro-Climatic Analysis</p>', unsafe_allow_html=True)
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
 
-# Logic to align the Zero-line properly
-rain_limit = max(abs(df['Rain_Anomaly_mm'].min()), abs(df['Rain_Anomaly_mm'].max()), 150)
-temp_limit = max(df['Temp_Anomaly_C'].max(), 2.5)
+# FIX: Professional Scale Limits
+# Rainfall needs wider spread for anomalies (300mm), Temp needs tight zoom for trend readability
+rain_limit = max(abs(df['Rain_Anomaly_mm'].min()), abs(df['Rain_Anomaly_mm'].max()), 300)
+temp_min = df['Temp_Anomaly_C'].min() - 0.2
+temp_max = df['Temp_Anomaly_C'].max() + 0.2
 
 if analysis_mode in ["Both", "Precipitation"]:
     fig_main.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", marker_color='rgba(0, 210, 255, 0.3)'), secondary_y=False)
 
 if analysis_mode in ["Both", "Temperature"]:
-    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Raw", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
+    # FIX: Label changed to "Temp Anomaly"
+    fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['T_Signal'], name="Decadal Trend", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
     
     # UPGRADE: Benchmarking Overlay (Multi-region)
@@ -162,7 +168,6 @@ if analysis_mode in ["Both", "Temperature"]:
 
     if predictive_mode:
         fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
-        # ML Upgrade: Polynomial
         poly = PolynomialFeatures(degree=2)
         poly_model = LinearRegression().fit(poly.fit_transform(X_train), df['T_Signal'])
         preds_poly = poly_model.predict(poly.fit_transform(fut_x))
@@ -171,13 +176,14 @@ if analysis_mode in ["Both", "Temperature"]:
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_lin, name="Linear Proj.", line=dict(dash='dot', color='#ff4b4b')), secondary_y=True)
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_poly, name="Polynomial (Acc.)", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
 
-# THE FIX: Syncing axes so they look "standard"
-fig_main.update_yaxes(title_text="Rainfall (mm)", range=[-rain_limit, rain_limit], secondary_y=False)
-fig_main.update_yaxes(title_text="Temperature (°C)", range=[-0.2, temp_limit], secondary_y=True)
+# THE FIX: Professional Axis Synchronization
+fig_main.update_yaxes(title_text="Rainfall Anomaly (mm)", range=[-rain_limit, rain_limit], secondary_y=False)
+# FIX: Removing static 0-2.5 range. Trend is now readable via dynamic tight bounds.
+fig_main.update_yaxes(title_text="Temperature Anomaly (°C)", range=[temp_min, temp_max], secondary_y=True)
 fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=480, hovermode="x unified")
 st.plotly_chart(fig_main, use_container_width=True)
 
-# --- 7. INTELLIGENCE INSIGHTS (UPGRADED WITH REAL-WORLD IMPACTS) ---
+# --- 7. INTELLIGENCE INSIGHTS ---
 st.markdown('<p class="sector-header">🧠 Intelligence & Real-World Insights</p>', unsafe_allow_html=True)
 i1, i2 = st.columns(2)
 with i1:
