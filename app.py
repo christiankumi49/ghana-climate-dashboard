@@ -7,6 +7,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from fpdf import FPDF
 from datetime import datetime
+import requests  # NEW: For Live API calls
 
 # --- 1. PRO-SUITE UI ARCHITECTURE ---
 st.set_page_config(page_title="GCI Pro-Suite | Climate Intel", layout="wide")
@@ -28,7 +29,6 @@ st.markdown("""
     .update-pulse { color: #00ffcc; font-size: 13px; font-family: 'Courier New', monospace; font-weight: bold; }
     section[data-testid="stSidebar"] { background-color: #111827; border-right: 1px solid #1f2937; }
     
-    /* NEW UPGRADE: INSIGHT CHIPS */
     .insight-chip {
         padding: 10px 15px;
         border-radius: 8px;
@@ -41,7 +41,25 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. REPORTING ENGINE ---
+# --- 2. LIVE ENGINE (NASA POWER API INTEGRATION) ---
+def fetch_nasa_live(lat, lon):
+    """Fetches real-time climate data from NASA POWER API for the current year."""
+    try:
+        curr_yr = datetime.now().year
+        url = f"https://power.larc.nasa.gov/api/temporal/monthly/point?parameters=T2M,PRECTOTCORR&community=AG&longitude={lon}&latitude={lat}&format=JSON&start={curr_yr}&end={curr_yr}"
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            t_vals = [x for x in data['properties']['parameter']['T2M'].values() if x != -999]
+            p_vals = [x for x in data['properties']['parameter']['PRECTOTCORR'].values() if x != -999]
+            if t_vals:
+                # Anomaly Calculation (relative to baseline)
+                return np.mean(t_vals) - 26.8, np.sum(p_vals) - 1150
+        return None, None
+    except:
+        return None, None
+
+# --- 3. REPORTING ENGINE ---
 def create_pdf_report(region, avg_t, avg_r, year_range, is_risky):
     pdf = FPDF()
     pdf.add_page()
@@ -58,13 +76,12 @@ def create_pdf_report(region, avg_t, avg_r, year_range, is_risky):
     pdf.multi_cell(0, 10, txt=f"Diagnostic Outcome: {status_text}. Data processed via GCI Engine.")
     return pdf.output(dest='S').encode('latin-1', 'ignore')
 
-# --- 3. DATA ENGINE ---
+# --- 4. DATA ENGINE ---
 @st.cache_data
 def load_historical_engine(uploaded_file=None):
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
     else:
-        # FIX: Adjusted to 2020 to align with your CRU dataset
         years = np.arange(1901, 2021) 
         df = pd.DataFrame({
             'Year': years, 
@@ -91,36 +108,46 @@ def load_historical_engine(uploaded_file=None):
         all_dfs.append(temp)
     return pd.concat(all_dfs)
 
-# --- 4. COMMAND CENTER (FIXED LOGIC) ---
+# --- 5. COMMAND CENTER ---
 st.sidebar.title("💎 COMMAND CENTER")
 uploaded_file = st.sidebar.file_uploader("⚡ Upload Custom CSV", type=["csv"])
 df_raw = load_historical_engine(uploaded_file)
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
 
-# UPGRADE: Multi-Region Comparison Selection
 compare_on = st.sidebar.toggle("Enable Benchmarking")
 compare_region = None
 if compare_on:
     compare_region = st.sidebar.selectbox("Comparison Benchmark", options=[r for r in sorted(df_raw['Region'].unique()) if r != selected_region])
 
-# Filter by region first to get Map Anchor
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
-reg_coords = pd.DataFrame({'lat': [df_reg['lat'].iloc[0]], 'lon': [df_reg['lon'].iloc[0]]})
+lat_c, lon_c = df_reg['lat'].iloc[0], df_reg['lon'].iloc[0]
 
-# FIX: Viewport now strictly respects the 2020 limit
-selected_years = st.sidebar.slider("Historical Viewport", int(df_reg['Year'].min()), int(df_reg['Year'].max()), (1980, 2020))
+# UPGRADE: Live API Toggle
+live_engine = st.sidebar.toggle("Live NASA Satellite Feed", value=True)
+status_tag = "OFFLINE"
+if live_engine:
+    with st.sidebar.status("Fetching Live Data..."):
+        l_t, l_r = fetch_nasa_live(lat_c, lon_c)
+        if l_t:
+            live_entry = pd.DataFrame({
+                'Year': [2026], 'Temp_Anomaly_C': [l_t], 'Rain_Anomaly_mm': [l_r],
+                'Region': [selected_region], 'lat': [lat_c], 'lon': [lon_c]
+            })
+            df_reg = pd.concat([df_reg, live_entry], ignore_index=True)
+            status_tag = "LIVE"
+
+selected_years = st.sidebar.slider("Historical Viewport", int(df_reg['Year'].min()), int(df_reg['Year'].max()), (1980, 2026))
 df = df_reg[df_reg['Year'].between(selected_years[0], selected_years[1])].copy()
 analysis_mode = st.sidebar.radio("Primary Stream", ["Both", "Temperature", "Precipitation"])
 
 predictive_mode = st.sidebar.toggle("Statistical Projections", value=True)
-# FIX: Horizon starts from 2021
 forecast_horizon = st.sidebar.slider("Horizon Year", 2021, 2060, 2050) if predictive_mode else 2020
 
 # Signal Processing
 df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=10, center=True).mean().ffill().bfill()
 df['R_Signal'] = df['Rain_Anomaly_mm'].rolling(window=10, center=True).mean().ffill().bfill()
 
-# --- 5. UPDATED METRICS & REFINED RISK LOGIC ---
+# --- 6. METRICS & RISK ---
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 X_train = df['Year'].values.reshape(-1, 1)
 model_t = LinearRegression().fit(X_train, df['T_Signal'])
@@ -131,7 +158,7 @@ if avg_t > 1.2 or t_slope > 0.009: risk_level = "CRITICAL"
 elif avg_t > 0.8 or avg_r < -15: risk_level = "HIGH"
 elif avg_t > 0.4: risk_level = "MEDIUM"
 
-st.markdown(f'<p class="update-pulse">● ENGINE ACTIVE | {selected_region.upper()}</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="update-pulse">● ENGINE {status_tag} | {selected_region.upper()}</p>', unsafe_allow_html=True)
 m1, m2, m3, m4 = st.columns(4)
 
 def render_metric(col, lab, val):
@@ -140,27 +167,21 @@ def render_metric(col, lab, val):
 render_metric(m1, "Mean Thermal Var.", f"+{avg_t:.2f} °C")
 render_metric(m2, "Rain Anomaly Δ", f"{avg_r:.1f} mm")
 render_metric(m3, "Risk Level ⚠️", risk_level)
-render_metric(m4, "Latest Record", f"{int(df['Year'].max())}")
+render_metric(m4, "Sync Year", f"{int(df['Year'].max())}")
 
-# --- 6. CORE ANALYTICS (FIXED STANDARD ALIGNMENT) ---
+# --- 7. CORE ANALYTICS ---
 st.markdown('<p class="sector-header">Standardized Hydro-Climatic Analysis</p>', unsafe_allow_html=True)
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
-
-# FIX: Professional Scale Limits
-# Rainfall needs wider spread for anomalies (300mm), Temp needs tight zoom for trend readability
-rain_limit = max(abs(df['Rain_Anomaly_mm'].min()), abs(df['Rain_Anomaly_mm'].max()), 300)
-temp_min = df['Temp_Anomaly_C'].min() - 0.2
-temp_max = df['Temp_Anomaly_C'].max() + 0.2
+rain_limit = 300
+temp_min, temp_max = df['Temp_Anomaly_C'].min() - 0.2, df['Temp_Anomaly_C'].max() + 0.2
 
 if analysis_mode in ["Both", "Precipitation"]:
     fig_main.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", marker_color='rgba(0, 210, 255, 0.3)'), secondary_y=False)
 
 if analysis_mode in ["Both", "Temperature"]:
-    # FIX: Label changed to "Temp Anomaly"
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['T_Signal'], name="Decadal Trend", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
     
-    # UPGRADE: Benchmarking Overlay (Multi-region)
     if compare_on and compare_region:
         df_comp = df_raw[(df_raw['Region'] == compare_region) & (df_raw['Year'].between(selected_years[0], selected_years[1]))]
         df_comp['T_Signal'] = df_comp['Temp_Anomaly_C'].rolling(window=10).mean().ffill().bfill()
@@ -172,60 +193,49 @@ if analysis_mode in ["Both", "Temperature"]:
         poly_model = LinearRegression().fit(poly.fit_transform(X_train), df['T_Signal'])
         preds_poly = poly_model.predict(poly.fit_transform(fut_x))
         preds_lin = model_t.predict(fut_x)
-        
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_lin, name="Linear Proj.", line=dict(dash='dot', color='#ff4b4b')), secondary_y=True)
         fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_poly, name="Polynomial (Acc.)", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
 
-# THE FIX: Professional Axis Synchronization
 fig_main.update_yaxes(title_text="Rainfall Anomaly (mm)", range=[-rain_limit, rain_limit], secondary_y=False)
-# FIX: Removing static 0-2.5 range. Trend is now readable via dynamic tight bounds.
 fig_main.update_yaxes(title_text="Temperature Anomaly (°C)", range=[temp_min, temp_max], secondary_y=True)
 fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=480, hovermode="x unified")
 st.plotly_chart(fig_main, use_container_width=True)
 
-# --- 7. INTELLIGENCE INSIGHTS ---
+# --- 8. INTELLIGENCE INSIGHTS & GEOSPATIAL ---
 st.markdown('<p class="sector-header">🧠 Intelligence & Real-World Insights</p>', unsafe_allow_html=True)
 i1, i2 = st.columns(2)
 with i1:
-    if t_slope > 0.007: 
-        st.warning(f"🔥 **Rapid Warming:** {selected_region} shows high thermal acceleration.")
-        st.markdown('<div class="insight-chip"><b>Impact:</b> High evaporation risk in cocoa belts. Heat-stress potential for livestock.</div>', unsafe_allow_html=True)
-    elif t_slope > 0.003: 
-        st.info("⚠️ **Moderate Warming:** Upward decadal trend detected.")
-        st.markdown('<div class="insight-chip"><b>Impact:</b> Shifting planting seasons; monitoring of soil moisture recommended.</div>', unsafe_allow_html=True)
-    else: 
-        st.success("✅ **Thermal Stability:** Minimal variance in this window.")
+    if t_slope > 0.007: st.warning(f"🔥 **Rapid Warming:** {selected_region} shows high thermal acceleration.")
+    elif t_slope > 0.003: st.info("⚠️ **Moderate Warming:** Upward decadal trend detected.")
 with i2:
-    if avg_r < -15: 
-        st.error("🚨 **Drought Signal:** Persistent negative rainfall anomaly.")
-        st.markdown('<div class="insight-chip"><b>Impact:</b> Significant threat to rain-fed agriculture and hydroelectric output.</div>', unsafe_allow_html=True)
-    elif avg_r > 15: 
-        st.success("🌧️ **Moisture Surplus:** Rainfall is above historical baseline.")
-        st.markdown('<div class="insight-chip"><b>Impact:</b> Increased runoff; potential drainage stress in urban areas.</div>', unsafe_allow_html=True)
-    else: 
-        st.info("📊 **Balanced Hydrology:** Moisture within normal variance.")
+    if avg_r < -15: st.error("🚨 **Drought Signal:** Persistent negative rainfall anomaly.")
+    elif avg_r > 15: st.success("🌧️ **Moisture Surplus:** Rainfall is above historical baseline.")
 
-# --- 8. GEOSPATIAL & RISK (FIXED ZOOM) ---
 st.divider()
-c1, c2, c3 = st.columns([1, 1, 1])
+c1, c2, c3 = st.columns(3)
 with c1:
     st.markdown('<p class="sector-header">Regional Anchor</p>', unsafe_allow_html=True)
-    st.map(reg_coords, zoom=7)
+    st.map(pd.DataFrame({'lat': [lat_c], 'lon': [lon_c]}), zoom=7)
 with c2:
     st.markdown('<p class="sector-header">Monthly Climatology</p>', unsafe_allow_html=True)
     months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     is_north = selected_region in ["Upper East", "Upper West", "Northern", "Savannah", "North East"]
     clim_r = [5, 12, 28, 60, 100, 160, 215, 270, 225, 90, 20, 5] if is_north else [20, 35, 75, 115, 170, 225, 145, 85, 170, 130, 50, 25]
-    st.plotly_chart(go.Figure(go.Scatter(x=months, y=clim_r, fill='tozeroy', line=dict(color='#00d2ff'))).update_layout(template="plotly_dark", height=220, margin=dict(t=0, b=0, l=0, r=0)), use_container_width=True)
+    st.plotly_chart(go.Figure(go.Scatter(x=months, y=clim_r, fill='tozeroy', line=dict(color='#00d2ff'))).update_layout(template="plotly_dark", height=220, margin=dict(t=0,b=0,l=0,r=0)), use_container_width=True)
 with c3:
     st.markdown('<p class="sector-header">Exposure Index</p>', unsafe_allow_html=True)
     exposure = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
-    fig_gauge = go.Figure(go.Indicator(mode="gauge+number", value=exposure, number={'suffix': "%"},
-        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#00d2ff"},
-               'steps': [{'range': [0, 60], 'color': '#1f2937'}, {'range': [60, 100], 'color': '#ef4444'}]}))
-    st.plotly_chart(fig_gauge.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=220, margin=dict(t=0, b=0)), use_container_width=True)
+    fig_gauge = go.Indicator(mode="gauge+number", value=exposure, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#00d2ff"}})
+    st.plotly_chart(go.Figure(fig_gauge).update_layout(paper_bgcolor='rgba(0,0,0,0)', height=220, margin=dict(t=0,b=0)), use_container_width=True)
 
 # --- 9. EXPORTS ---
 st.sidebar.divider()
+st.sidebar.subheader("📤 EXPORTS")
+
+# CSV Export
+csv_exp = df.to_csv(index=False).encode('utf-8')
+st.sidebar.download_button("📊 Download Data (.CSV)", csv_exp, f"GCI_{selected_region}_Trends.csv", "text/csv")
+
+# PDF Export
 pdf_data = create_pdf_report(selected_region, avg_t, avg_r, selected_years, risk_level in ["HIGH", "CRITICAL"])
 st.sidebar.download_button("📄 Download PDF Report", pdf_data, f"GCI_{selected_region}.pdf")
