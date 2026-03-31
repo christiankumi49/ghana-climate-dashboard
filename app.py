@@ -25,6 +25,7 @@ st.markdown("""
     }
     .metric-label { color: #8892b0; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; }
     .metric-value { color: #00d2ff; font-size: 32px; font-weight: 800; margin-top: 5px; }
+    .metric-critical { color: #ff4b4b; font-size: 32px; font-weight: 800; margin-top: 5px; }
     .sector-header { color: #ffffff; font-size: 20px; font-weight: 700; border-bottom: 2px solid #1f2937; padding-bottom: 10px; margin-bottom: 20px; }
     .update-pulse { color: #00ffcc; font-size: 13px; font-family: 'Courier New', monospace; font-weight: bold; }
     .ai-box {
@@ -40,7 +41,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. ENGINES (LIVE + ANOMALY + AI SUMMARY) ---
+# --- 2. ENGINES ---
 def fetch_nasa_live(lat, lon):
     try:
         curr_yr = datetime.now().year
@@ -56,18 +57,16 @@ def fetch_nasa_live(lat, lon):
     except: return None, None
 
 def detect_anomalies(series):
-    """Identifies statistical outliers (> 2 Standard Deviations)."""
     z_scores = (series - series.mean()) / series.std()
     return series[np.abs(z_scores) > 2.0]
 
 def generate_ai_diagnostic(region, avg_t, t_slope, risk, anoms):
-    """Decision Intelligence Generator."""
     warming_speed = "Accelerated" if t_slope > 0.007 else "Steady"
     extreme_count = len(anoms)
     return f"""
     **SYSTEM DIAGNOSTIC:** The {region} sector is experiencing **{warming_speed} thermal variance** (+{t_slope:.4f}°C/yr). 
     The Risk Engine has flagged a **{risk}** rating. Statistical analysis identified **{extreme_count}** extreme thermal 
-    anomalies in the current viewport. Current moisture flux suggests a need for CAT modeling adjustments in agricultural planning.
+    anomalies. Current moisture flux suggests a need for CAT modeling adjustments in agricultural planning.
     """
 
 # --- 3. REPORTING ENGINE ---
@@ -108,10 +107,6 @@ st.sidebar.title("💎 COMMAND CENTER")
 uploaded_file = st.sidebar.file_uploader("⚡ Upload Custom CSV", type=["csv"])
 df_raw = load_historical_engine(uploaded_file)
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
-
-compare_on = st.sidebar.toggle("Enable Benchmarking")
-compare_region = st.sidebar.selectbox("Benchmark", [r for r in sorted(df_raw['Region'].unique()) if r != selected_region]) if compare_on else None
-
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
 lat_c, lon_c = df_reg['lat'].iloc[0], df_reg['lon'].iloc[0]
 
@@ -135,65 +130,61 @@ forecast_horizon = st.sidebar.slider("Horizon Year", 2021, 2060, 2050) if predic
 df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=10, center=True).mean().ffill().bfill()
 df['R_Signal'] = df['Rain_Anomaly_mm'].rolling(window=10, center=True).mean().ffill().bfill()
 
-# --- 6. METRICS & RISK ---
+# --- 6. METRICS & RISK LOGIC ---
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 X_train = df['Year'].values.reshape(-1, 1)
 model_t = LinearRegression().fit(X_train, df['T_Signal'])
 t_slope = model_t.coef_[0]
-
-# NEW METRIC: Growing Degree Days (GDD) Calculation
-gdd_est = int((avg_t + 26.0 - 10) * 365) # Baseline 10C
+gdd_est = int((avg_t + 26.0 - 10) * 365)
 
 risk_level = "LOW"
 if avg_t > 1.2 or t_slope > 0.009: risk_level = "CRITICAL"
 elif avg_t > 0.8 or avg_r < -15: risk_level = "HIGH"
 elif avg_t > 0.4: risk_level = "MEDIUM"
 
-# --- 7. PRO-UPGRADE: AI SUMMARY BOX ---
 st.markdown(f'<p class="update-pulse">● ENGINE {status_tag} | {selected_region.upper()}</p>', unsafe_allow_html=True)
 anomalies_thermal = detect_anomalies(df['Temp_Anomaly_C'])
 ai_summary = generate_ai_diagnostic(selected_region, avg_t, t_slope, risk_level, anomalies_thermal)
 st.markdown(f'<div class="ai-box">{ai_summary}</div>', unsafe_allow_html=True)
 
 m1, m2, m3, m4 = st.columns(4)
-def render_metric(col, lab, val):
-    col.markdown(f'<div class="glass-card"><p class="metric-label">{lab}</p><p class="metric-value">{val}</p></div>', unsafe_allow_html=True)
+def render_metric(col, lab, val, is_danger=False):
+    style_class = "metric-critical" if is_danger else "metric-value"
+    col.markdown(f'<div class="glass-card"><p class="metric-label">{lab}</p><p class="{style_class}">{val}</p></div>', unsafe_allow_html=True)
 
 render_metric(m1, "Mean Thermal Var.", f"+{avg_t:.2f} °C")
 render_metric(m2, "Rain Anomaly Δ", f"{avg_r:.1f} mm")
-render_metric(m3, "Risk Score", risk_level)
+render_metric(m3, "Risk Score", risk_level, is_danger=(risk_level == "CRITICAL"))
 render_metric(m4, "Annual GDD", f"{gdd_est} units")
 
-# --- 8. ANALYTICS (With Anomaly Detection Points) ---
+# --- 7. CORE ANALYTICS ---
 st.markdown('<p class="sector-header">Standardized Hydro-Climatic Analysis</p>', unsafe_allow_html=True)
 fig_main = make_subplots(specs=[[{"secondary_y": True}]])
-rain_limit = 300
-temp_min, temp_max = df['Temp_Anomaly_C'].min() - 0.2, df['Temp_Anomaly_C'].max() + 0.2
-
 if analysis_mode in ["Both", "Precipitation"]:
     fig_main.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", marker_color='rgba(0, 210, 255, 0.3)'), secondary_y=False)
-
 if analysis_mode in ["Both", "Temperature"]:
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
     fig_main.add_trace(go.Scatter(x=df['Year'], y=df['T_Signal'], name="Decadal Trend", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
-    
-    # NEW: Plotting Anomaly Points
     if not anomalies_thermal.empty:
         fig_main.add_trace(go.Scatter(x=anomalies_thermal.index + df['Year'].min(), y=anomalies_thermal.values, mode='markers', name='Extreme Event', marker=dict(color='#00ffcc', size=10, symbol='diamond')), secondary_y=True)
 
-    if predictive_mode:
-        fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
-        poly = PolynomialFeatures(degree=2)
-        poly_model = LinearRegression().fit(poly.fit_transform(X_train), df['T_Signal'])
-        preds_poly = poly_model.predict(poly.fit_transform(fut_x))
-        fig_main.add_trace(go.Scatter(x=fut_x.flatten(), y=preds_poly, name="Polynomial Proj.", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
-
-fig_main.update_yaxes(title_text="Rainfall (mm)", range=[-rain_limit, rain_limit], secondary_y=False)
-fig_main.update_yaxes(title_text="Temp Anomaly (°C)", range=[temp_min, temp_max], secondary_y=True)
-fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=480, hovermode="x unified")
+fig_main.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=480)
 st.plotly_chart(fig_main, use_container_width=True)
 
-# --- 9. GEOSPATIAL & RISK ---
+# --- 8. INTELLIGENCE INSIGHTS (RESTORED DROUGHT/FLOOD LOGIC) ---
+st.markdown('<p class="sector-header">🧠 Intelligence & Real-World Insights</p>', unsafe_allow_html=True)
+i1, i2 = st.columns(2)
+with i1:
+    if t_slope > 0.007: st.warning(f"🔥 **Rapid Warming:** {selected_region} shows high thermal acceleration.")
+    elif t_slope > 0.003: st.info("⚠️ **Moderate Warming:** Upward decadal trend detected.")
+    else: st.success("✅ **Thermal Stability:** Temperature trends are within normal bounds.")
+with i2:
+    if avg_r < -25: st.error("🚨 **Drought Signal:** Critical negative rainfall anomaly detected.")
+    elif avg_r < -10: st.warning("⚠️ **Moisture Deficit:** Region is trending towards dry conditions.")
+    elif avg_r > 25: st.info("🌧️ **Flood Risk:** Significant positive rainfall anomaly; monitor runoff.")
+    else: st.success("🌊 **Hydrological Balance:** Precipitation levels are stable.")
+
+# --- 9. GEOSPATIAL & EXPOSURE ---
 st.divider()
 c1, c2, c3 = st.columns(3)
 with c1:
@@ -206,8 +197,8 @@ with c2:
     st.plotly_chart(go.Figure(go.Scatter(x=months, y=clim_r, fill='tozeroy', line=dict(color='#00d2ff'))).update_layout(template="plotly_dark", height=220, margin=dict(t=0,b=0,l=0,r=0)), use_container_width=True)
 with c3:
     st.markdown('<p class="sector-header">Exposure Index</p>', unsafe_allow_html=True)
-    exposure = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
-    st.plotly_chart(go.Figure(go.Indicator(mode="gauge+number", value=exposure, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#00d2ff"}})).update_layout(paper_bgcolor='rgba(0,0,0,0)', height=220, margin=dict(t=0,b=0)), use_container_width=True)
+    exposure_val = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
+    st.plotly_chart(go.Figure(go.Indicator(mode="gauge+number", value=exposure_val, number={'suffix': "%"}, gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#ff4b4b" if exposure_val > 70 else "#00d2ff"}})).update_layout(paper_bgcolor='rgba(0,0,0,0)', height=220, margin=dict(t=0,b=0)), use_container_width=True)
 
 # --- 10. EXPORTS ---
 st.sidebar.divider()
