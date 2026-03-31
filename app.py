@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import PolynomialFeatures
 from sklearn.metrics import r2_score
 from fpdf import FPDF
 import matplotlib.pyplot as plt
@@ -50,6 +51,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. ENGINES ---
+# UPGRADE: API Caching (Prevents rate limits and speeds up UI)
 @st.cache_data(ttl=3600)
 def fetch_nasa_live(lat, lon):
     try:
@@ -66,37 +68,76 @@ def fetch_nasa_live(lat, lon):
     except:
         return None, None
 
+def validate_schema(df):
+    required = {'Year', 'Temp_Anomaly_C', 'Rain_Anomaly_mm'}
+    if not required.issubset(df.columns):
+        st.error(f"❌ Schema Violation: Ensure columns are 'Year', 'Temp_Anomaly_C', 'Rain_Anomaly_mm'.")
+        st.stop()
+    return True
+
 def detect_anomalies(series):
     z_scores = (series - series.mean()) / (series.std() + 1e-6)
     return series[np.abs(z_scores) > 2.0]
 
+# UPGRADE: Uncertainty Bounds (Calculates 95% Confidence Interval based on residuals)
 def calculate_bounds(y_true, y_pred):
     residuals = y_true - y_pred
     stdev = np.std(residuals)
     return y_pred - (1.96 * stdev), y_pred + (1.96 * stdev)
 
+def generate_ai_diagnostic(region, avg_t, t_slope, risk, t_anoms, r_anoms, r2, m_name):
+    warming_speed = "Accelerated" if t_slope > 0.007 else "Steady"
+    reliability = "High" if r2 > 0.7 else "Moderate" if r2 > 0.4 else "Low"
+    return f"""
+    **SYSTEM DIAGNOSTIC:** The {region} sector is experiencing **{warming_speed} thermal variance** (+{t_slope:.4f}°C/yr). 
+    Model: **{m_name}** | Reliability: **{reliability}** ($R^2$: {r2:.2f}). 
+    The engine identified **{len(t_anoms)} thermal** and **{len(r_anoms)} rainfall** extremes. Risk level: **{risk}**.
+    """
+
 # --- 3. REPORTING ENGINE ---
+# UPGRADE: Chart Embedding (Fixes the BytesIO startswith error)
 def create_pdf_report(region, avg_t, avg_r, year_range, risk, r2, diag, fig_static):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", 'B', 18)
     pdf.cell(200, 15, txt=f"GCI Elite Intelligence: {region}", ln=True, align='C')
+    
+    pdf.set_font("Helvetica", size=11)
+    pdf.ln(5)
+    pdf.cell(200, 8, txt=f"Analysis Window: {year_range[0]} - {year_range[1]}", ln=True)
+    pdf.cell(200, 8, txt=f"Thermal Variance: +{avg_t:.2f} C | Model R2: {r2:.2f} | Status: {risk}", ln=True)
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
         fig_static.savefig(tmp.name, format='png', bbox_inches='tight', dpi=100)
         temp_path = tmp.name
+
     pdf.image(temp_path, x=10, y=55, w=190)
+    
     if os.path.exists(temp_path):
         os.remove(temp_path)
+    
+    pdf.set_y(150)
+    pdf.set_font("Helvetica", 'B', 12)
+    pdf.cell(200, 10, txt="Expert Diagnostic Summary:", ln=True)
+    pdf.set_font("Helvetica", size=10)
+    pdf.multi_cell(0, 8, txt=diag.replace("**", ""))
+    
     return pdf.output(dest='S').encode('latin-1', 'ignore')
 
 # --- 4. DATA ENGINE ---
 @st.cache_data
 def load_historical_engine(uploaded_file=None):
     if uploaded_file is not None: 
-        return pd.read_csv(uploaded_file)
+        df = pd.read_csv(uploaded_file)
+        validate_schema(df)
+        return df
     years = np.arange(1901, 2021) 
     df = pd.DataFrame({'Year': years, 'Temp_Anomaly_C': np.random.normal(0.4, 0.1, len(years)) + (years-1901)*0.006, 'Rain_Anomaly_mm': np.random.normal(0, 70, len(years))})
-    regions = {"Ashanti": [6.74, -1.52, 0.1, 5], "Greater Accra": [5.60, -0.19, 0.2, -8], "Northern": [9.40, -0.85, 0.8, -25], "Upper East": [10.80, -0.90, 0.9, -30], "Western": [5.55, -2.15, -0.2, 20], "Volta": [6.50, 0.45, 0.3, 10]}
+    regions = {
+        "Ashanti": [6.74, -1.52, 0.1, 5], "Greater Accra": [5.60, -0.19, 0.2, -8],
+        "Northern": [9.40, -0.85, 0.8, -25], "Upper East": [10.80, -0.90, 0.9, -30],
+        "Western": [5.55, -2.15, -0.2, 20], "Volta": [6.50, 0.45, 0.3, 10]
+    }
     all_dfs = []
     for reg, (lat, lon, t_off, r_off) in regions.items():
         temp = df.copy().assign(Region=reg, lat=lat, lon=lon)
@@ -108,31 +149,39 @@ def load_historical_engine(uploaded_file=None):
 st.sidebar.title("💎 COMMAND CENTER")
 df_raw = load_historical_engine(st.sidebar.file_uploader("⚡ Upload CSV", type=["csv"]))
 selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw['Region'].unique()))
+
+if selected_region not in st.session_state.history:
+    st.session_state.history.append(selected_region)
+
+# UPGRADE: Model Selection (Ridge & Random Forest added)
 model_choice = st.sidebar.radio("Analysis Engine", ["Linear Regression", "Ridge (L2)", "Random Forest"])
 
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
 lat_c, lon_c = df_reg['lat'].iloc[0], df_reg['lon'].iloc[0]
 
 live_engine = st.sidebar.toggle("Live NASA Satellite Feed", value=True)
-status_tag = "LIVE" if live_engine else "OFFLINE"
+status_tag = "OFFLINE"
 if live_engine:
     l_t, l_r = fetch_nasa_live(lat_c, lon_c)
     if l_t:
         live_entry = pd.DataFrame({'Year':[2026],'Temp_Anomaly_C':[l_t],'Rain_Anomaly_mm':[l_r],'Region':[selected_region],'lat':[lat_c],'lon':[lon_c]})
         df_reg = pd.concat([df_reg, live_entry], ignore_index=True)
+        status_tag = "LIVE"
 
 selected_years = st.sidebar.slider("Historical Viewport", 1901, 2026, (1980, 2026))
 df = df_reg[df_reg['Year'].between(selected_years[0], selected_years[1])].copy()
 predictive_mode = st.sidebar.toggle("Statistical Projections", value=True)
 forecast_horizon = st.sidebar.slider("Horizon Year", 2021, 2060, 2050) if predictive_mode else 2020
 
-# --- 6. METRICS & ANALYSIS (FIXED SCOPE) ---
 df['T_Signal'] = df['Temp_Anomaly_C'].rolling(window=10, center=True).mean().ffill().bfill()
+
+# --- 6. METRICS & ANALYSIS ---
 t_anoms = detect_anomalies(df['Temp_Anomaly_C'])
 r_anoms = detect_anomalies(df['Rain_Anomaly_mm'])
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 X, y = df['Year'].values.reshape(-1, 1), df['T_Signal'].values
 
+# Model Logic
 if model_choice == "Linear Regression": model = LinearRegression().fit(X, y)
 elif model_choice == "Ridge (L2)": model = Ridge(alpha=1.0).fit(X, y)
 else: model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y)
@@ -141,8 +190,7 @@ y_pred = model.predict(X)
 r2_val = r2_score(y, y_pred)
 t_slope = (y_pred[-1] - y_pred[0]) / (X[-1] - X[0])[0] if model_choice != "Random Forest" else 0.0075
 
-# GLOBAL VARIABLE FIX
-warming_speed = "Accelerated" if t_slope > 0.007 else "Steady"
+# UPGRADE: Confidence Intervals
 lower_b, upper_b = calculate_bounds(y, y_pred)
 
 risk_level = "LOW"
@@ -150,7 +198,7 @@ if len(t_anoms) > 5 or avg_r < -25: risk_level = "CRITICAL"
 elif avg_t > 0.8 or avg_r < -15: risk_level = "HIGH"
 elif avg_t > 0.4: risk_level = "MEDIUM"
 
-diag_text = f"The {selected_region} sector is experiencing {warming_speed} thermal variance. Model: {model_choice} (R2: {r2_val:.2f}). Risk: {risk_level}."
+diag_text = generate_ai_diagnostic(selected_region, avg_t, t_slope, risk_level, t_anoms, r_anoms, r2_val, model_choice)
 
 st.markdown(f'<p class="update-pulse">● ENGINE {status_tag} | {selected_region.upper()}</p>', unsafe_allow_html=True)
 st.markdown(f'<div class="ai-box">{diag_text}</div>', unsafe_allow_html=True)
@@ -163,44 +211,44 @@ for i, (l, v, d) in enumerate(metrics):
 # --- 7. CORE ANALYTICS ---
 fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", marker_color='rgba(0, 210, 255, 0.3)'), secondary_y=False)
+fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly (Obs)", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
 fig.add_trace(go.Scatter(x=df['Year'], y=y_pred, name="Trend Line", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
-fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=450)
+
+# UPGRADE: Shaded Uncertainty Area
+fig.add_trace(go.Scatter(x=np.concatenate([df['Year'], df['Year'][::-1]]), y=np.concatenate([upper_b, lower_b[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.1)', line=dict(color='rgba(255,255,255,0)'), name="95% CI"), secondary_y=True)
+
+if predictive_mode:
+    fut_x = np.arange(int(df['Year'].max()) + 1, forecast_horizon + 1).reshape(-1, 1)
+    fig.add_trace(go.Scatter(x=fut_x.flatten(), y=model.predict(fut_x), name="Projection", line=dict(dash='dash', color='#ffcc00')), secondary_y=True)
+
+fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=500, margin=dict(t=20, b=20))
 st.plotly_chart(fig, use_container_width=True)
 
-# --- 9. GEOSPATIAL & LABELED GAUGES ---
-st.divider()
-st.markdown('<p class="sector-header">Regional Vulnerability & Seasonality</p>', unsafe_allow_html=True)
-c1, c2, c3 = st.columns(3)
-with c1: 
-    st.markdown("**Geo-Spatial Positioning**")
-    st.map(pd.DataFrame({'lat': [lat_c], 'lon': [lon_c]}), zoom=7)
-with c2: 
-    st.markdown("**Intra-Annual Rainfall Seasonality**")
-    seasonal_fig = go.Figure(go.Scatter(x=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], y=[5,12,28,60,100,160,215,270,225,90,20,5], fill='tozeroy', line=dict(color='#00d2ff')))
-    seasonal_fig.update_layout(template="plotly_dark", height=250, yaxis_title="Precipitation (mm)")
-    st.plotly_chart(seasonal_fig, use_container_width=True)
-with c3:
-    st.markdown("**Composite Climate Exposure Index**")
-    exp = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
-    gauge_fig = go.Figure(go.Indicator(mode="gauge+number", value=exp, number={'suffix': "%"}, title={'text': "Exposure Risk", 'font': {'size': 18}}))
-    gauge_fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250)
-    st.plotly_chart(gauge_fig, use_container_width=True)
+# --- 8. MATPLOTLIB FOR PDF ---
+plt.style.use('dark_background')
+fig_static, ax = plt.subplots(figsize=(10, 5))
+ax.plot(df['Year'], y, color='white', alpha=0.3, label="Signal")
+ax.plot(df['Year'], y_pred, color='#00d2ff', label="Trend")
+ax.fill_between(df['Year'], lower_b, upper_b, color='#00d2ff', alpha=0.1)
+ax.set_title(f"Climatic Variance: {selected_region}")
+plt.close(fig_static)
 
-# --- 11. INTELLIGENCE INSIGHTS ---
+# --- 9. GEOSPATIAL ---
 st.divider()
-st.markdown('<p class="sector-header">GCI Elite Intelligence Insight</p>', unsafe_allow_html=True)
-ins1, ins2 = st.columns(2)
-with ins1:
-    st.markdown(f"""<div class="glass-card"><p style="color:#00ffcc; font-weight:bold;">Primary Climatological Driver</p>
-    Analysis indicates <b>{selected_region}</b> is influenced by <b>West African Monsoon (WAM)</b> cycles.
-    The observed <b>{warming_speed.lower()}</b> warming of <b>+{t_slope:.4f}°C/year</b> impacts latent heat flux.</div>""", unsafe_allow_html=True)
-with ins2:
-    st.markdown(f"""<div class="glass-card"><p style="color:#ff4b4b; font-weight:bold;">Strategic Risk Projection</p>
-    With a <b>{risk_level}</b> status, urban infrastructure must prioritize thermal resilience. 
-    <b>{len(t_anoms)}</b> thermal outliers detected. Mitigation recommended before the <b>{forecast_horizon}</b> horizon.</div>""", unsafe_allow_html=True)
+c1, c2, c3 = st.columns(3)
+with c1: st.map(pd.DataFrame({'lat': [lat_c], 'lon': [lon_c]}), zoom=7)
+with c2: st.plotly_chart(go.Figure(go.Scatter(x=list(range(1,13)), y=[5,12,28,60,100,160,215,270,225,90,20,5], fill='tozeroy', line=dict(color='#00d2ff'))).update_layout(template="plotly_dark", height=220, margin=dict(t=0,b=0,l=0,r=0)), use_container_width=True)
+with c3:
+    exp = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
+    st.plotly_chart(go.Figure(go.Indicator(mode="gauge+number", value=exp, number={'suffix': "%"}, gauge={'bar':{'color':'#ff4b4b' if exp > 60 else '#00d2ff'}})).update_layout(paper_bgcolor='rgba(0,0,0,0)', height=220), use_container_width=True)
 
 # --- 10. EXPORTS ---
-plt.style.use('dark_background')
-fig_static, ax = plt.subplots(); ax.plot(df['Year'], y_pred); plt.close(fig_static)
+st.sidebar.divider()
+st.sidebar.subheader("🕒 Session History")
+for item in st.session_state.history[-5:]: st.sidebar.write(f"• {item}")
+
 pdf_bytes = create_pdf_report(selected_region, avg_t, avg_r, selected_years, risk_level, r2_val, diag_text, fig_static)
+
+st.sidebar.divider()
+st.sidebar.download_button("📊 Export CSV", df.to_csv(index=False).encode('utf-8'), f"GCI_{selected_region}.csv")
 st.sidebar.download_button("📄 Download PDF Report", pdf_bytes, f"GCI_Report_{selected_region}.pdf")
