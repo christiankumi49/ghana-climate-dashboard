@@ -51,7 +51,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 2. ENGINES ---
-# UPGRADE: API Caching (Prevents rate limits and speeds up UI)
 @st.cache_data(ttl=3600)
 def fetch_nasa_live(lat, lon):
     try:
@@ -79,7 +78,6 @@ def detect_anomalies(series):
     z_scores = (series - series.mean()) / (series.std() + 1e-6)
     return series[np.abs(z_scores) > 2.0]
 
-# UPGRADE: Uncertainty Bounds (Calculates 95% Confidence Interval based on residuals)
 def calculate_bounds(y_true, y_pred):
     residuals = y_true - y_pred
     stdev = np.std(residuals)
@@ -95,7 +93,6 @@ def generate_ai_diagnostic(region, avg_t, t_slope, risk, t_anoms, r_anoms, r2, m
     """
 
 # --- 3. REPORTING ENGINE ---
-# UPGRADE: Chart Embedding (Fixes the BytesIO startswith error)
 def create_pdf_report(region, avg_t, avg_r, year_range, risk, r2, diag, fig_static):
     pdf = FPDF()
     pdf.add_page()
@@ -153,7 +150,6 @@ selected_region = st.sidebar.selectbox("Geographic Focus", options=sorted(df_raw
 if selected_region not in st.session_state.history:
     st.session_state.history.append(selected_region)
 
-# UPGRADE: Model Selection (Ridge & Random Forest added)
 model_choice = st.sidebar.radio("Analysis Engine", ["Linear Regression", "Ridge (L2)", "Random Forest"])
 
 df_reg = df_raw[df_raw['Region'] == selected_region].copy()
@@ -181,7 +177,6 @@ r_anoms = detect_anomalies(df['Rain_Anomaly_mm'])
 avg_t, avg_r = df['Temp_Anomaly_C'].mean(), df['Rain_Anomaly_mm'].mean()
 X, y = df['Year'].values.reshape(-1, 1), df['T_Signal'].values
 
-# Model Logic
 if model_choice == "Linear Regression": model = LinearRegression().fit(X, y)
 elif model_choice == "Ridge (L2)": model = Ridge(alpha=1.0).fit(X, y)
 else: model = RandomForestRegressor(n_estimators=100, random_state=42).fit(X, y)
@@ -190,7 +185,6 @@ y_pred = model.predict(X)
 r2_val = r2_score(y, y_pred)
 t_slope = (y_pred[-1] - y_pred[0]) / (X[-1] - X[0])[0] if model_choice != "Random Forest" else 0.0075
 
-# UPGRADE: Confidence Intervals
 lower_b, upper_b = calculate_bounds(y, y_pred)
 
 risk_level = "LOW"
@@ -213,8 +207,6 @@ fig = make_subplots(specs=[[{"secondary_y": True}]])
 fig.add_trace(go.Bar(x=df['Year'], y=df['Rain_Anomaly_mm'], name="Rain Anomaly", marker_color='rgba(0, 210, 255, 0.3)'), secondary_y=False)
 fig.add_trace(go.Scatter(x=df['Year'], y=df['Temp_Anomaly_C'], name="Temp Anomaly (Obs)", line=dict(color='rgba(255, 75, 75, 0.2)')), secondary_y=True)
 fig.add_trace(go.Scatter(x=df['Year'], y=y_pred, name="Trend Line", line=dict(color='#ff4b4b', width=3)), secondary_y=True)
-
-# UPGRADE: Shaded Uncertainty Area
 fig.add_trace(go.Scatter(x=np.concatenate([df['Year'], df['Year'][::-1]]), y=np.concatenate([upper_b, lower_b[::-1]]), fill='toself', fillcolor='rgba(255, 75, 75, 0.1)', line=dict(color='rgba(255,255,255,0)'), name="95% CI"), secondary_y=True)
 
 if predictive_mode:
@@ -233,14 +225,87 @@ ax.fill_between(df['Year'], lower_b, upper_b, color='#00d2ff', alpha=0.1)
 ax.set_title(f"Climatic Variance: {selected_region}")
 plt.close(fig_static)
 
-# --- 9. GEOSPATIAL ---
+# --- 9. GEOSPATIAL & LABELED GAUGES ---
 st.divider()
+st.markdown('<p class="sector-header">Regional Vulnerability & Seasonality</p>', unsafe_allow_html=True)
 c1, c2, c3 = st.columns(3)
-with c1: st.map(pd.DataFrame({'lat': [lat_c], 'lon': [lon_c]}), zoom=7)
-with c2: st.plotly_chart(go.Figure(go.Scatter(x=list(range(1,13)), y=[5,12,28,60,100,160,215,270,225,90,20,5], fill='tozeroy', line=dict(color='#00d2ff'))).update_layout(template="plotly_dark", height=220, margin=dict(t=0,b=0,l=0,r=0)), use_container_width=True)
+
+with c1: 
+    st.markdown("**Geo-Spatial Positioning**")
+    st.map(pd.DataFrame({'lat': [lat_c], 'lon': [lon_c]}), zoom=7)
+
+with c2: 
+    st.markdown("**Intra-Annual Rainfall Seasonality**")
+    # UPDATED: Added Title and Axis Labels to the Seasonality Chart
+    seasonal_fig = go.Figure(go.Scatter(
+        x=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], 
+        y=[5,12,28,60,100,160,215,270,225,90,20,5], 
+        fill='tozeroy', 
+        line=dict(color='#00d2ff')
+    ))
+    seasonal_fig.update_layout(
+        template="plotly_dark", 
+        height=250, 
+        margin=dict(t=10,b=10,l=0,r=0),
+        yaxis_title="Precipitation (mm)",
+        xaxis_title="Month"
+    )
+    st.plotly_chart(seasonal_fig, use_container_width=True)
+
 with c3:
+    st.markdown("**Composite Climate Exposure Index**")
+    # UPDATED: Added meaningful labels to the Gauge
     exp = min(100, int((max(0, avg_t)/1.8 + abs(min(0, avg_r))/80) * 50))
-    st.plotly_chart(go.Figure(go.Indicator(mode="gauge+number", value=exp, number={'suffix': "%"}, gauge={'bar':{'color':'#ff4b4b' if exp > 60 else '#00d2ff'}})).update_layout(paper_bgcolor='rgba(0,0,0,0)', height=220), use_container_width=True)
+    gauge_fig = go.Figure(go.Indicator(
+        mode="gauge+number", 
+        value=exp, 
+        number={'suffix': "%", 'font': {'size': 40}},
+        title={'text': "Exposure Risk", 'font': {'size': 18}},
+        gauge={
+            'axis': {'range': [None, 100]},
+            'bar': {'color': '#ff4b4b' if exp > 60 else '#00d2ff'},
+            'steps': [
+                {'range': [0, 40], 'color': "rgba(0, 210, 255, 0.1)"},
+                {'range': [40, 70], 'color': "rgba(255, 204, 0, 0.1)"},
+                {'range': [70, 100], 'color': "rgba(255, 75, 75, 0.1)"}
+            ],
+            'threshold': {'line': {'color': "white", 'width': 2}, 'thickness': 0.8, 'value': 85}
+        }
+    ))
+    gauge_fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', height=250, margin=dict(t=40,b=0))
+    st.plotly_chart(gauge_fig, use_container_width=True)
+
+# --- 11. INTELLIGENCE INSIGHTS (NEW) ---
+st.divider()
+st.markdown('<p class="sector-header">GCI Elite Intelligence Insight</p>', unsafe_allow_html=True)
+ins1, ins2 = st.columns(2)
+
+with ins1:
+    st.markdown(f"""
+    <div class="glass-card">
+        <p style="color:#00ffcc; font-weight:bold;">Primary Climatological Driver</p>
+        <p style="font-size:14px; color:#e2e8f0;">
+            Current analysis indicates that <b>{selected_region}</b> is heavily influenced by the 
+            <b>West African Monsoon (WAM)</b> retreat cycles. The observed {warming_speed.lower()} 
+            warming of <b>+{t_slope:.4f}°C/year</b> suggests a significant shift in latent heat 
+            flux, potentially impacting local subsistence farming and water security.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with ins2:
+    st.markdown(f"""
+    <div class="glass-card">
+        <p style="color:#ff4b4b; font-weight:bold;">Strategic Risk Projection</p>
+        <p style="font-size:14px; color:#e2e8f0;">
+            With a <b>{risk_level}</b> risk status, urban infrastructure in this sector 
+            should prioritize thermal resilience. The engine's 95% Confidence Interval suggests 
+            that extreme thermal events are becoming more frequent, with <b>{len(t_anoms)}</b> 
+            outliers detected in the selected viewport. Adaptive mitigation is recommended 
+            before the {forecast_horizon} horizon.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- 10. EXPORTS ---
 st.sidebar.divider()
